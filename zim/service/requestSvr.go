@@ -1,0 +1,48 @@
+package service
+
+import (
+	"encoding/json"
+	"time"
+	"zim/common"
+	"zim/dao"
+	"zim/sys"
+)
+
+type requestSrv struct{}
+
+func NewRequestSrv() *requestSrv {
+	return &requestSrv{}
+}
+
+/**
+ * 解析请求
+ */
+func (r *requestSrv) parse(c *connectSvr, msg []byte) (err error) {
+	//defer common.HandleError()
+	req := dao.NewRequestDao()
+	if err = json.Unmarshal(msg, req); err != nil {
+		common.LogSvr.Println("info: "+sys.LangConf.Get("4000").MustString(), string(msg), err)
+		return
+	}
+	switch req.Cmd {
+	case "send":
+		r.assert(c, req)
+		if _, err = req.Save(); err == nil {
+			SendSrv.req <- req
+		}
+	case "receive":
+		req.Tuid = c.User.Uid
+		ReceiveSvr.req <- req
+	}
+	return
+}
+
+func (r *requestSrv) assert(c *connectSvr, req *dao.RequestDao) {
+	req.Fuid, req.Fname = c.User.Uid, c.User.Username
+	if req.Expired == 0 {
+		req.Expired = 86400 * 30
+	}
+	if req.Stime <= 0 {
+		req.Stime = time.Now().Unix()
+	}
+}

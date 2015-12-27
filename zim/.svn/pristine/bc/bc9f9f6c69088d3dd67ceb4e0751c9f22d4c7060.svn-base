@@ -1,0 +1,6 @@
+{
+	"tips"					: "提示",
+	"config_open_error"		: "打开配置文件错误：",
+	"config_read_content"	: "读配置文件：",
+	"config_parse_content"	: "解析配置文件："
+}

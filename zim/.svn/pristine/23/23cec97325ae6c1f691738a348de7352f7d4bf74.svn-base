@@ -1,0 +1,60 @@
+{
+	"base":{
+		"name":"Server",
+		"ip":"localhost",
+		"port":"9264"
+	},
+	"db" : {
+		"master" : {
+			"host" : "192.168.150.13",
+			"port" : 3306,
+			"user" : "dev",
+			"pass" : "dev",
+			"dbn" : "zim"
+		},
+		"slave" : {
+			"host" : "192.168.150.13",
+			"port" : 3306,
+			"user" : "dev",
+			"pass" : "dev",
+			"dbn" : "zim"
+		}
+	},
+	"redis" : {
+		"master" : {
+			"host" : "192.168.150.13",
+			"port" : 6379,
+			"pass" : ""
+		}
+	},	
+	"sendqueue":{
+		"active":false,
+		"retries":5,
+		"host" : "192.168.150.13",
+		"port" : 11300,
+		"watch":"sendqueue"
+	},
+	"ls":{
+		"0":{
+			"ip":"localhost",
+			"port":"9264"
+		},
+		"1":{
+			"ip":"localhost",
+			"port":"9264"
+		}
+	},
+	"ns":{
+		"0":{
+			"ip":"localhost",
+			"port":"9264"
+		},
+		"1":{
+			"ip":"localhost",
+			"port":"9264"
+		}
+	},
+	"online":500000,
+	"keepalive":86400,
+	"test" : true
+}

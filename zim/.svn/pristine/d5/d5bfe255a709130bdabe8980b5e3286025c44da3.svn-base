@@ -1,0 +1,228 @@
+package dao
+
+import (
+	"strconv"
+	"time"
+	"zim/sys"
+)
+
+type User struct {
+	Appid    int    `json:"appid"  db:"appid"`       //Appid
+	Uid      string `json:"uid" db:"uid"`            //用户id
+	Username string `json:"username"  db:"username"` //用户名
+	Nickname string `json:"nickname"  db:"nickname"` //昵称
+	Sex      string `json:"sex"  db:"sex"`           //性别
+}
+
+type UserDao struct {
+	baseDao
+	User
+	disabled int    `db:"disabled"`                //是否禁用
+	password string `db:"password"`                //密码
+	timeline int64  `db:"timeline"`                //时间戳
+	SeqSvr   int64  `json:"seq_svr"  db:"seq_svr"` //服务端分配序列
+	SeqCli   int64  `json:"seq_cli"  db:"seq_cli"` //客户端读取序列
+
+	tag    []string            `json:"tag" `    //用户标签
+	roster []string            `json:"roster" ` //好友列表
+	group  map[string][]string `json:"group" `  //群列表
+}
+
+func NewUserDao(sessionid string) (u *UserDao) {
+	u = &UserDao{
+		tag:    make([]string, 0),
+		roster: make([]string, 0),
+		group:  make(map[string][]string, 0),
+	}
+	u.SetTableName("zim_user")
+	u.SetSessionid(sessionid)
+	return
+}
+
+func (u *UserDao) Login(username, password, appid string) (err error) {
+	err = u.getUserByUsername(username, password, appid)
+	if err == nil && u.Uid != "" {
+		//gd := NewGroupDao(u.sessionid)
+		//u.Group, _, _ = gd.Get(u.Uid)
+		//td := NewTagDao(u.sessionid)
+		//u.Tag, _ = td.GetTag(u.Uid)
+	}
+	return
+}
+
+func (u *UserDao) getUserByUid(uid string) (err error) {
+	sql := "SELECT `appid`,`uid`,`username`,`nickname`,`sex`,`seq_cli`,`seq_svr`,`disabled` FROM `" + u.GetTableName() + "` WHERE `uid`='" + uid + "'"
+	dbmap, err := sys.DbHub.Database(u.sessionid, "master")
+	if err != nil {
+		return
+	}
+	urow, err := dbmap.Query(sql)
+	defer urow.Close()
+	if err == nil {
+		urow.Next()
+		err = urow.Scan(&u.Appid, &u.Uid, &u.Username, &u.Nickname, &u.Sex, &u.SeqCli, &u.SeqSvr, &u.disabled)
+	}
+	return
+}
+
+func (u *UserDao) getUserByUsername(username, password, appid string) (err error) {
+	sql := "SELECT `appid`,`uid`,`username`,`nickname`,`sex`,`seq_cli`,`seq_svr` FROM `" + u.GetTableName() + "` WHERE `disabled`=0 AND `username`='" + username + "' AND `password`='" + password + "' AND `appid`='" + appid + "'"
+	dbmap, err := sys.DbHub.Database(u.sessionid, "master")
+	if err != nil {
+		return
+	}
+	urow, err := dbmap.Query(sql)
+	defer urow.Close()
+	if err == nil {
+		urow.Next()
+		err = urow.Scan(&u.Appid, &u.Uid, &u.Username, &u.Nickname, &u.Sex, &u.SeqCli, &u.SeqSvr)
+	}
+	return
+}
+
+func (u *UserDao) CheckUsername(username, appid string) (code int, err error) {
+	code = 2008
+	if len(username) > 64 {
+		return
+	}
+	dbmap, err := sys.DbHub.Database(u.sessionid, "master")
+	if err != nil {
+		return
+	}
+	sql := "SELECT `uid` FROM `" + u.GetTableName() + "` WHERE `appid`='" + appid + "' AND username='" + username + "'"
+	urow, err := dbmap.Query(sql)
+	defer urow.Close()
+	if err == nil {
+		urow.Next()
+		err = urow.Scan(&u.Uid)
+		if u.Uid == "" {
+			code = 0
+		} else {
+			code = 2009
+		}
+	}
+	return
+}
+
+func (u *UserDao) GetGroupUser(gid, gtype string) (sm []GroupUserDao, err error) {
+	guu := NewGroupUserDao(u.sessionid)
+	sm, err = guu.GetGroupUser(gid, gtype)
+	return
+}
+
+func (u *UserDao) incrSeq(uid string, tp string) (seqSvr int64, seqCli int64, err error) {
+	sql := "UPDATE `" + u.GetTableName() + "` SET `seq_cli`=`seq_cli`+1 WHERE `uid`='" + uid + "'"
+	if tp == "s" {
+		sql = "UPDATE `" + u.GetTableName() + "` SET `seq_svr`=`seq_svr`+1 WHERE `uid`='" + uid + "'"
+	}
+	dbmap, err := sys.DbHub.Database(u.sessionid, "master")
+	if err != nil {
+		return
+	}
+	stmt, _ := dbmap.Prepare(sql)
+	defer stmt.Close()
+	_, err = stmt.Exec()
+	if err != nil {
+		return
+	}
+	sql = "SELECT `seq_svr`,`seq_cli` FROM `" + u.GetTableName() + "` WHERE `uid`='" + uid + "'"
+	urow, err := dbmap.Query(sql)
+	defer urow.Close()
+	if err != nil {
+		return
+	}
+	urow.Next()
+	urow.Scan(&seqSvr, &seqCli)
+	return
+}
+
+func (u *UserDao) setSeq(seq int64, uid string, tp string) (seqSvr int64, seqCli int64, err error) {
+	sql := "UPDATE `" + u.GetTableName() + "` SET `seq_cli`=" + strconv.FormatInt(seq, 10) + " WHERE `uid`='" + uid + "'"
+	if tp == "s" {
+		sql = "UPDATE `" + u.GetTableName() + "` SET `seq_svr`=" + strconv.FormatInt(seq, 10) + " WHERE `uid`='" + uid + "'"
+	}
+	dbmap, err := sys.DbHub.Database(u.sessionid, "master")
+	if err != nil {
+		return
+	}
+	stmt, _ := dbmap.Prepare(sql)
+	defer stmt.Close()
+	_, err = stmt.Exec()
+	if err != nil {
+		return
+	}
+	sql = "SELECT `seq_svr`,`seq_cli` FROM `" + u.GetTableName() + "` WHERE `uid`='" + uid + "'"
+	urow, err := dbmap.Query(sql)
+	defer urow.Close()
+	if err != nil {
+		return
+	}
+	urow.Next()
+	urow.Scan(&seqSvr, &seqCli)
+	u.SeqCli, u.SeqSvr = seqCli, seqSvr
+	return
+}
+
+func (u *UserDao) haveMessage(uid string, seqCli int64) (r bool, err error) {
+	sql := "SELECT `seq_cli`,`seq_svr` FROM " + u.GetTableName() + " WHERE `uid`='" + uid + "'"
+	dbmap, err := sys.DbHub.Database(u.sessionid, "master")
+	if err != nil {
+		return
+	}
+	urow, err := dbmap.Query(sql)
+	defer urow.Close()
+	if err == nil {
+		urow.Next()
+		urow.Scan(&u.SeqCli, &u.SeqSvr)
+		if u.SeqSvr > seqCli {
+			r = true
+		}
+	}
+	return
+}
+
+func (u *UserDao) AddUser(uid, username, password, nickname, sex, appid string) (id string, err error) {
+	dbmap, err := sys.DbHub.Database(u.sessionid, "master")
+	if err != nil {
+		return
+	}
+	sql := "INSERT INTO `" + u.GetTableName() + "`(`appid`,`username`,`nickname`,`sex`,`password`,`disabled`,`timeline`) VALUES(?,?,?,?,?,?,?)"
+	if uid != "" {
+		sql = "INSERT INTO `" + u.GetTableName() + "`(`uid`,`appid`,`username`,`nickname`,`sex`,`password`,`disabled`,`timeline`) VALUES(?,?,?,?,?,?,?,?)"
+	}
+	stmt, _ := dbmap.Prepare(sql)
+	defer stmt.Close()
+	if uid != "" {
+		if res, err := stmt.Exec(uid, appid, username, nickname, sex, password, 0, time.Now().Unix()); err == nil {
+			if i, err := res.LastInsertId(); err == nil {
+				u.Uid, id = strconv.FormatInt(i, 10), strconv.FormatInt(i, 10)
+			}
+		}
+	} else {
+		if res, err := stmt.Exec(appid, username, nickname, sex, password, 0, time.Now().Unix()); err == nil {
+			if i, err := res.LastInsertId(); err == nil {
+				u.Uid, id = strconv.FormatInt(i, 10), strconv.FormatInt(i, 10)
+			}
+		}
+	}
+	return
+}
+
+//广播消息调用
+func (u *UserDao) GetAllUid() (a []string, err error) {
+	a = make([]string, 0)
+	sql := "SELECT `uid` FROM `" + u.GetTableName() + "` WHERE `disabled`=0"
+	dbmap, err := sys.DbHub.Database(u.sessionid, "master")
+	if err != nil {
+		return
+	}
+	urow, err := dbmap.Query(sql)
+	defer urow.Close()
+	for urow.Next() {
+		uid := ""
+		if err = urow.Scan(&uid); err == nil {
+			a = append(a, uid)
+		}
+	}
+	return
+}

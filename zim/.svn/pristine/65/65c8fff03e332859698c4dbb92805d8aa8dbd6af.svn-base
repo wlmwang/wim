@@ -1,0 +1,158 @@
+package service
+
+import (
+	"encoding/json"
+	//"fmt"
+	"zim/dao"
+)
+
+type sendSrv struct {
+	req chan *dao.RequestDao
+}
+
+var SendSrv *sendSrv
+
+func NewSendSrv() *sendSrv {
+	return &sendSrv{
+		req: make(chan *dao.RequestDao, 10000), //消息中间件中最多10000条数据同时处理
+	}
+}
+
+func (s *sendSrv) Run() {
+	for {
+		select {
+		case req := <-s.req:
+			s.handle(req)
+			//s.autoAsk(req)
+		}
+	}
+}
+
+/**
+ * 发送消息处理器
+ * 包含：单聊消息、群聊消息
+ */
+func (s *sendSrv) handle(req *dao.RequestDao) (err error) {
+	//defer common.HandleError()
+	if c, err := ConnectHub.getConnectSvr("u/" + req.Fuid); err == nil {
+		t, _ := c.getToken()
+		//send message
+		switch req.To[0:2] {
+		case "u/":
+			sd := dao.NewSendDao(t)
+			sd.SetTuid(string(req.To[2:]))
+			sd.Assert(req)
+			sd.Save()
+			//push tip
+			pd := dao.NewPushDao()
+			pd.Assert("push", sd)
+			p := NewPushSvr()
+			data, _ := json.Marshal(pd)
+			p.PushTip("u/"+req.To[2:], data)
+			//end
+		case "g/":
+			if u, err := c.getUser(); err == nil {
+				if sm, err := u.GetGroupUser(req.To[2:], "normal"); err == nil {
+					for _, gu := range sm {
+						if gu.Uid == req.Fuid {
+							continue
+						}
+						t, _ := c.getToken()
+						sd := dao.NewSendDao(t)
+						sd.SetTuid(gu.Uid)
+						sd.Assert(req)
+						sd.Save()
+						//push tip
+						pd := dao.NewPushDao()
+						pd.Assert("push", sd)
+						p := NewPushSvr()
+						data, _ := json.Marshal(pd)
+						p.PushTip("u/"+gu.Uid, data)
+						//end
+					}
+				}
+			}
+		case "s/":
+			if u, err := c.getUser(); err == nil {
+				if sm, err := u.GetGroupUser(req.To[2:], "session"); err == nil {
+					for _, gu := range sm {
+						if gu.Uid == req.Fuid {
+							continue
+						}
+						t, _ := c.getToken()
+						sd := dao.NewSendDao(t)
+						sd.SetTuid(gu.Uid)
+						sd.Assert(req)
+						sd.Save()
+						//push tip
+						pd := dao.NewPushDao()
+						pd.Assert("push", sd)
+						p := NewPushSvr()
+						data, _ := json.Marshal(pd)
+						p.PushTip("u/"+gu.Uid, data)
+						//end
+					}
+				}
+			}
+		case "t/":
+			var sUid []string
+			if req.To == "t/all" {
+				u := dao.NewUserDao(t)
+				sUid, err = u.GetAllUid()
+			} else {
+				td := dao.NewTagDao(t)
+				sUid, err = td.GetUid(req.To[2:])
+			}
+			if err == nil {
+				for _, v := range sUid {
+					sd := dao.NewSendDao(t)
+					sd.SetTuid(v)
+					sd.Assert(req)
+					sd.Save()
+					//push tip
+					pd := dao.NewPushDao()
+					pd.Assert("push", sd)
+					p := NewPushSvr()
+					data, _ := json.Marshal(pd)
+					p.PushTip("u/"+v, data)
+					//end
+				}
+			}
+		case "b/":
+			req.Cmd = "broadcast"
+			if req.To == "b/online" {
+				sd := dao.NewSendDao(t)
+				sd.Assert(req)
+				rd := dao.NewReceiveDao(t)
+				rd.Cmd = req.Cmd
+				rd.Message = append(rd.Message, *sd)
+				if message, err := json.Marshal(rd); err == nil {
+					ConnectHub.Broadcast(message)
+				}
+			}
+		case "c/":
+		}
+
+	}
+	return
+}
+
+func (s *sendSrv) autoAsk(req *dao.RequestDao) (err error) {
+	//defer common.HandleError()
+	if connectSrv, err := ConnectHub.getConnectSvr("u/" + req.Fuid); err == nil {
+		t, _ := connectSrv.getToken()
+		sd := dao.NewSendDao(t)
+		sd.Assert(req)
+		sd.SetTuid(string(req.Fuid))
+		sd.Fuid = string(req.To[2:])
+		sd.Message["content"] = "这是自动回应消息"
+
+		rd := dao.NewReceiveDao(t)
+		rd.Cmd = "message"
+		rd.Message = append(rd.Message, *sd)
+		if message, err := json.Marshal(rd); err == nil {
+			connectSrv.sendText(message)
+		}
+	}
+	return
+}

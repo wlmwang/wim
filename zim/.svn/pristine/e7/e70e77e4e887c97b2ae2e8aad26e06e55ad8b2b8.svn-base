@@ -1,0 +1,26 @@
+// Copyright 2014 G&W. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package sys
+
+import (
+	"crypto/md5"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"time"
+)
+
+func NewGUID() (sid string) {
+	bs := make([]byte, 24)
+	if _, err := io.ReadFull(rand.Reader, bs); err != nil {
+		return ""
+	}
+	sig := fmt.Sprintf("%s%s", time.Now().UnixNano(), bs)
+	h := md5.New()
+	h.Write([]byte(sig))
+	sid = hex.EncodeToString(h.Sum(nil))
+	return
+}

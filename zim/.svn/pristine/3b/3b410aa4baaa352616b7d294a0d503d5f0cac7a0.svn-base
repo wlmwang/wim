@@ -1,0 +1,13 @@
+package dao
+
+type BaseDao struct {
+	TableName string
+}
+
+func (basedao *BaseDao) SetTableName(tableName) {
+	basedao.TableName = tableName
+}
+
+func (basedao *BaseDao) GetTableName(tableName) string {
+	return basedao.TableName
+}

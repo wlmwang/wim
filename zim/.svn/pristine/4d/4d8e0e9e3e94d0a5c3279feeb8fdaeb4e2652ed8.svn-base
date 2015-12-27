@@ -1,0 +1,69 @@
+package sys
+
+import (
+	"encoding/json"
+	"fmt"
+	"gaw/model"
+	"gaw/protocol"
+	"github.com/iwanbk/gobeanstalk"
+	"log"
+	"os"
+	"time"
+)
+
+type SendQueue struct {
+	conn  *gobeanstalk.Conn
+	watch string
+}
+
+var GsendQueue *SendQueue
+
+func (sendQueuer *SendQueue) Put(data []byte, pri uint32, delay, ttr time.Duration) (uint64, error) {
+	return sendQueuer.conn.Put(data, pri, delay, ttr)
+}
+
+func (sendQueuer *SendQueue) Delete(id uint64) error {
+	err := sendQueuer.conn.Delete(id)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (sendQueuer *SendQueue) Run() {
+	for {
+		j, err := sendQueuer.conn.Reserve()
+		if err != nil {
+			log.Println("reserve failed", err)
+			log.Fatal(err)
+			return
+		}
+		//发送队列数据
+		messageModel := model.NewMessageModel()
+		if err := json.Unmarshal(j.Body, messageModel); err == nil {
+			protocol.GmessageProtocol.SendMessage(messageModel)
+		}
+		err = sendQueuer.conn.Delete(j.ID)
+		if err != nil {
+			log.Fatal(err)
+			return
+		}
+	}
+}
+
+func NewSendQueue(beanstalk string) *SendQueue {
+	config := Gconfig.Get(beanstalk)
+	connName := fmt.Sprintf("%s:%d", config.Get("host").MustString(), config.Get("port").MustInt())
+	conn, err := gobeanstalk.Dial(connName)
+	if err != nil {
+		log.Printf("connect failed:", err)
+		os.Exit(1)
+	}
+	conn.Ignore("default")
+	_, err = conn.Watch(config.Get("watch").MustString())
+	if err != nil {
+		log.Printf("Watch failed:", err)
+		os.Exit(2)
+	}
+	return &SendQueue{conn, config.Get("watch").MustString()}
+}

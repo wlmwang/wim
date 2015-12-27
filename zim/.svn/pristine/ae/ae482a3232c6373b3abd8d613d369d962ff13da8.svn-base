@@ -1,0 +1,30 @@
+{
+	"base":{
+		"name":"GAW推送服务",
+		"root":"d:/golang/src/gaw"
+	},
+	"db" : {
+		"gaw" : {
+			"host" : "192.168.150.13",
+			"port" : 3306,
+			"user" : "dev",
+			"pass" : "dev",
+			"dbn" : "gaw"
+		}
+	},
+	"memcache" : {
+		"memcache" : {
+			"host" : "192.168.150.13",
+			"port" : 11213
+		}
+	},
+	"sendqueue":{
+		"active":false,
+		"retries":5,
+		"host" : "192.168.150.13",
+		"port" : 11300,
+		"watch":"sendqueue"
+	},
+	"IS_TEST" : true,
+	"StatisticsTime":5
+}

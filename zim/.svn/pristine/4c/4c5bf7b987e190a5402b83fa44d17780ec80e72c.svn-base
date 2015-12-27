@@ -1,0 +1,17 @@
+// Copyright 2014 G&W. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package protocol
+
+import (
+	"gaw/model"
+)
+
+type MessageProtocol interface {
+	ParseRequest(SocketProtocol, []byte) error
+	SendMessage(msg *model.MessageModel) error
+	Run()
+}
+
+var GmessageProtocol MessageProtocol

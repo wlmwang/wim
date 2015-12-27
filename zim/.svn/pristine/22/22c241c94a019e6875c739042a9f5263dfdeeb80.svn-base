@@ -1,0 +1,95 @@
+// Copyright 2014 G&W. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package service
+
+import (
+	"encoding/json"
+	"net/rpc"
+	"time"
+	"zim/dao"
+)
+
+type pushSvr struct {
+}
+
+func NewPushSvr() *pushSvr {
+	return &pushSvr{}
+}
+
+func (p *pushSvr) PushTip(query string, data []byte) (res string, code int) {
+	//defer common.HandleError()
+	//android
+	res, islogin := LoginSvr.CheckLogin(query)
+	if res == "" || !islogin {
+		code = 2020
+		return
+	}
+	c := NewConnectSvr()
+	if err := json.Unmarshal([]byte(res), c); err != nil || c.User.Uid == "" {
+		code = 4000
+		return
+	}
+	client, err := rpc.DialHTTP("tcp", c.SvrIp+":"+c.SvrPort)
+	if err != nil {
+		code = 5007
+	}
+	rg := make(map[string]string, 0)
+	rg["token"] = c.Token
+	rg["query"] = string(data)
+	var reply []byte
+	err = client.Call("RpcSvr.PushTip", rg, &reply)
+	if err == nil {
+		res = string(reply)
+		return
+	}
+	//ios
+	//coding...
+	return
+}
+
+func (p *pushSvr) PushForce(token string, ud *dao.UserDao) {
+	sd := dao.NewSendDao(token)
+	sd.Stime, sd.Fuid, sd.Fname, sd.To, sd.Tuid = time.Now().Unix(), ud.Uid, ud.Username, "u/"+ud.Uid, ud.Uid
+	pd := dao.NewPushDao()
+	pd.Assert("force", sd)
+	data, _ := json.Marshal(pd)
+	p.PushTip("c/"+token, data)
+}
+
+//online offline
+func (p *pushSvr) PushStatus2Friend(status, token string, ud *dao.UserDao) {
+	suu := dao.NewSuserDao(token)
+	if s, err := suu.GetSuser(ud.Uid, ""); err == nil {
+		for _, u := range s {
+			sd := dao.NewSendDao(token)
+			sd.Stime, sd.Fuid, sd.Fname, sd.To, sd.Tuid = time.Now().Unix(), ud.Uid, ud.Username, "u/"+u.Uid, u.Uid
+			pd := dao.NewPushDao()
+			pd.Assert(status, sd)
+			data, _ := json.Marshal(pd)
+			p.PushTip("u/"+u.Uid, data)
+		}
+	}
+}
+
+func (p *pushSvr) PushStatus2Group(status, token string, ud *dao.UserDao) {
+	if connectSrv, err := ConnectHub.getConnectSvr("u/" + ud.Uid); err == nil {
+		if user, err := connectSrv.getUser(); err == nil {
+			for _, gd := range user.Group {
+				for _, gu := range gd.Guser {
+					if gu.Uid == ud.Uid {
+						continue
+					}
+					t, _ := connectSrv.getToken()
+					sd := dao.NewSendDao(t)
+					sd.Stime, sd.Fuid, sd.Fname, sd.To, sd.Tuid = time.Now().Unix(), ud.Uid, ud.Username, "u/"+gu.Uid, gu.Uid
+					pd := dao.NewPushDao()
+					pd.Assert(status, sd)
+					data, _ := json.Marshal(pd)
+					p.PushTip("u/"+gu.Uid, data)
+				}
+			}
+		}
+	}
+}

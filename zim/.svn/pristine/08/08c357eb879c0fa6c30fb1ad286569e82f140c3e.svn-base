@@ -1,0 +1,55 @@
+// Copyright 2014 G&W. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package service
+
+import (
+	"encoding/json"
+	//"fmt"
+	"net/http"
+	"zim/common"
+	"zim/dao"
+)
+
+type sendSrv struct {
+}
+
+func NewSendSrv() *sendSrv {
+	return &sendSrv{}
+}
+
+/**
+ * 发送消息处理器
+ * 包含：单聊消息、群聊消息
+ */
+func (s *sendSrv) handle(req *dao.RequestDao) (err error) {
+	//defer common.HandleError()
+	if req.To[0:2] == "g/" { //群聊
+
+	} else if req.To[0:2] == "u/" { //单聊
+		sd := dao.NewSendDao()
+		sd.SetTuid(req.To)
+		sd.Assert(req)
+		sd.Save()
+		//push tip
+		//android
+		if res, islogin := LoginSvr.CheckLogin(req.To[2:], "u"); res != "" && islogin {
+			c := NewConnectSvr()
+			if err := json.Unmarshal([]byte(res), c); err == nil && c.User.Uid != "" {
+				data, _ := json.Marshal(sd)
+				url := "http://" + c.SvrIp + ":" + c.SvrPort + "/ps?token=" + c.Token + "&query="
+				url += string(data)
+				resp, _ := http.Get(url)
+				defer resp.Body.Close()
+			} else {
+				common.LogSvr.Fatal("fatal: " + err.Error())
+			}
+		}
+		//ios
+		//coding...
+	} else if req.To[0:2] == "c/" {
+
+	}
+	return nil
+}

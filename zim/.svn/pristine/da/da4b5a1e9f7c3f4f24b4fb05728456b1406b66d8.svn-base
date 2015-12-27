@@ -1,0 +1,132 @@
+package dao
+
+import (
+	"strconv"
+	"time"
+	"zim/sys"
+)
+
+type SuserDao struct {
+	baseDao
+	id    string `db:"id"`
+	sid   string `db:"sid"`
+	owner string `db:"owner"`
+	UserRealTimeDao
+}
+
+type SortDao struct {
+	baseDao
+	Sid      string `json:"sid" db:"sid"`
+	Sname    string `json:"sname" db:"sname"`
+	disabled int    `db:"disabled"` //是否禁用
+	uid      string `db:"uid"`
+	Suser    []SuserDao
+}
+
+func NewSuserDao(sessionid string) (su *SuserDao) {
+	su = &SuserDao{}
+	su.SetTableName("zim_suser")
+	su.SetSessionid(sessionid)
+	return
+}
+
+func NewSortDao(sessionid string) (s *SortDao) {
+	s = &SortDao{
+		Suser: make([]SuserDao, 0),
+	}
+	s.SetTableName("zim_sort")
+	s.SetSessionid(sessionid)
+	return
+}
+
+func (s *SortDao) Get(uid string) (sm map[string]SortDao, ss []SortDao, err error) {
+	sm = make(map[string]SortDao, 0)
+	ss = make([]SortDao, 0)
+	su := NewSuserDao(s.sessionid)
+	sql := "SELECT `sid`,`sname`,`uid`,`disabled` FROM `" + s.GetTableName() + "` WHERE `disabled`=0 AND `uid`=" + uid
+	dbmap, err := sys.DbHub.Database(s.sessionid, "master")
+	if err != nil {
+		return
+	}
+	u := NewUserDao(s.sessionid)
+	urow, err := dbmap.Query(sql)
+	for urow.Next() {
+		sn := NewSortDao(s.sessionid)
+		if err = urow.Scan(&sn.Sid, &sn.Sname, &sn.uid, &sn.disabled); err == nil {
+			sql = "SELECT `id`,`uid`,`sid` FROM `" + su.GetTableName() + "` WHERE sid='" + sn.Sid + "'"
+			trow, _ := dbmap.Query(sql)
+			for trow.Next() {
+				suu := NewSuserDao(s.sessionid)
+				if err = trow.Scan(&suu.id, &suu.Uid, &suu.sid); err == nil {
+					u.GetUserInfo(suu.Uid)
+					suu.Appid, suu.Nickname, suu.Username, suu.Sex = u.Appid, u.Nickname, u.Username, u.Sex
+					sn.Suser = append(sn.Suser, *suu)
+				}
+			}
+			sm[sn.Sid] = *sn
+			ss = append(ss, *sn)
+		}
+	}
+	return
+}
+
+func (su *SuserDao) GetSuser(uid, sid string) (sm []SuserDao, err error) {
+	dbmap, err := sys.DbHub.Database(su.sessionid, "master")
+	if err != nil {
+		return
+	}
+	s := NewSortDao(su.sessionid)
+	sql := "SELECT su.`id`,su.`uid`,su.`sid` FROM `" + su.GetTableName() + "` AS su INNER JOIN `" + s.GetTableName() + "` AS s ON s.sid=su.sid  WHERE s.`uid`='" + uid + "' GROUP BY su.uid"
+	if sid != "" {
+		sql = "SELECT su.`id`,su.`uid`,su.`sid` FROM `" + su.GetTableName() + "` AS su INNER JOIN `" + s.GetTableName() + "` AS s ON s.sid=su.sid  WHERE s.`uid`='" + uid + "' AND s.sid='" + sid + "' GROUP BY su.uid"
+	}
+	u := NewUserDao(su.sessionid)
+	trow, _ := dbmap.Query(sql)
+	for trow.Next() {
+		suu := NewSuserDao(su.sessionid)
+		if err = trow.Scan(&suu.id, &suu.Uid, &suu.sid); err == nil {
+			u.GetUserInfo(suu.Uid)
+			suu.Appid, suu.Nickname, suu.Username, suu.Sex = u.Appid, u.Nickname, u.Username, u.Sex
+			sm = append(sm, *suu)
+		}
+	}
+	return
+}
+
+func (su *SuserDao) CheckFriend(owner, uid string) (code int, err error) {
+	code = 2014
+	dbmap, err := sys.DbHub.Database(su.sessionid, "master")
+	if err != nil {
+		return
+	}
+	sql := "SELECT `id` FROM `" + su.GetTableName() + "` WHERE `uid`='" + uid + "' AND owner='" + owner + "'"
+	urow, err := dbmap.Query(sql)
+	if err == nil {
+		urow.Next()
+		err = urow.Scan(&su.id)
+		if su.id == "" {
+			code = 0
+		} else {
+			code = 2013
+		}
+	}
+	return
+}
+
+func (su *SuserDao) AddFriend(owner, uid, sid string) (id string, err error) {
+	dbmap, err := sys.DbHub.Database(su.sessionid, "master")
+	if err != nil {
+		return
+	}
+	sql := "INSERT INTO `" + su.GetTableName() + "`(`owner`,`uid`,`sid`,`timeline`) VALUES(?,?,?,?)"
+	stmt, _ := dbmap.Prepare(sql)
+	defer stmt.Close()
+	res, err := stmt.Exec(owner, uid, sid, time.Now().Unix())
+	if err != nil {
+		return
+	}
+	if i, err := res.LastInsertId(); err == nil {
+		id = strconv.FormatInt(i, 10)
+	}
+	return
+}

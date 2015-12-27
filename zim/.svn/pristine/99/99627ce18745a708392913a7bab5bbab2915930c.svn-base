@@ -1,0 +1,132 @@
+package service
+
+import (
+	"errors"
+	"fmt"
+	"sync"
+	"time"
+	"zim/sys"
+)
+
+const (
+	pingPeriod = (10 * 9) / 10 //pongWait*9/10
+)
+
+/**
+ * 连接池
+ */
+type connectHub struct {
+	lock     *sync.RWMutex          //锁
+	register chan *connectSvr       //注册连接
+	msg      chan []byte            //广播消息
+	cList    map[string]*connectSvr //所有连接客户端 token(1:1)连接句柄ws
+	uList    map[string]string      //在线用户 uid(1:1)用户token
+	tList    map[string][]string    //标签在线用户 tag(1:n)用户token
+}
+
+var ConnectHub *connectHub
+
+func NewConnectHub() *connectHub {
+	return &connectHub{
+		lock:     new(sync.RWMutex),
+		register: make(chan *connectSvr),
+		msg:      make(chan []byte),
+		cList:    make(map[string]*connectSvr),
+		uList:    make(map[string]string),
+		tList:    make(map[string][]string),
+	}
+}
+
+func (hub *connectHub) Run() {
+	ticker := time.NewTicker(pingPeriod * time.Second)
+	defer func() {
+		ticker.Stop()
+	}()
+	for {
+		select {
+		case c := <-hub.register:
+			hub.add(c)
+		case m := <-hub.msg:
+			for _, c := range hub.cList {
+				c.sendText(m)
+			}
+		case <-ticker.C:
+			for _, c := range hub.cList {
+				if c != nil {
+					if err := c.ping(); err == nil {
+						continue
+					} else {
+						token, _ := c.getToken()
+						hub.close(token)
+					}
+				}
+			}
+			hub.statistics()
+		}
+	}
+}
+
+/**
+ * 关闭连接
+ */
+func (hub *connectHub) close(token string) {
+	hub.lock.RLock()
+	defer hub.lock.RUnlock()
+	if c, ok := hub.cList[token]; ok {
+		if user, err := c.getUser(); err == nil {
+			delete(hub.uList, "u/"+string(user.Uid))
+		}
+		fmt.Println(token)
+		LoginSvr.Logout(token)
+		c.discon()
+		delete(hub.cList, token)
+	}
+}
+
+/**
+ * 添加句柄到连接池
+ */
+func (hub *connectHub) add(c *connectSvr) (err error) {
+	hub.lock.RLock()
+	defer hub.lock.RUnlock()
+	if token, err := c.getToken(); err == nil {
+		hub.cList[token] = c
+		if user, err := c.getUser(); err == nil {
+			hub.uList["u/"+user.Uid] = c.Token
+		}
+	}
+	return err
+}
+
+/**
+ * 获得连接句柄
+ * c/	u/
+ */
+func (hub *connectHub) getConnectSvr(query string) (*connectSvr, error) {
+	c, ok := hub.cList[query]
+	if query[0:2] == "u/" {
+		if tk, kt := hub.uList[query]; kt {
+			c, ok = hub.cList[tk]
+		}
+	}
+	if ok {
+		if _, err := c.getToken(); err == nil {
+			return c, err
+		}
+	}
+	err := errors.New(sys.LangConf.Get("3000").MustString())
+	return &connectSvr{}, err
+}
+
+func (hub *connectHub) Broadcast(message []byte) {
+	hub.msg <- message
+}
+
+/**
+ * 连接统计
+ */
+func (hub *connectHub) statistics() {
+	fmt.Println("连接数:", len(hub.cList))
+	fmt.Println("登陆数:", len(hub.uList))
+	fmt.Println("总人数:", len(LoginSvr.tToServer))
+}

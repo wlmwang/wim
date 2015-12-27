@@ -1,0 +1,48 @@
+{
+	"base":{
+		"name":"Zim Server",
+		"ip":"localhost",
+		"port":"9264"
+	},
+	"db" : {
+		"master" : {
+			"host" : "192.168.150.13",
+			"port" : 3306,
+			"user" : "dev",
+			"pass" : "dev",
+			"dbn" : "zim"
+		}
+	},
+	"memcache" : {
+		"master" : {
+			"host" : "192.168.150.13",
+			"port" : 11213
+		}
+	},
+	"sendqueue":{
+		"active":false,
+		"retries":5,
+		"host" : "192.168.150.13",
+		"port" : 11300,
+		"watch":"sendqueue"
+	},
+	"test" : true,
+	"statistics":5,
+
+	"ds":{
+		"d1":{
+			"ip":"localhost",
+			"port":"9264"
+		}
+	},
+	"ns":{
+		"n1":{
+			"ip":"localhost",
+			"port":"9264"
+		},
+		"n2":{
+			"ip":"localhost",
+			"port":"9264"
+		}
+	}
+}

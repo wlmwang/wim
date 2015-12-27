@@ -1,0 +1,97 @@
+// Copyright 2014 G&W. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package dao
+
+import (
+	"gaw/model"
+	"gaw/sys"
+	"strconv"
+)
+
+type userDao struct {
+	database string
+	table    string
+	tagTable string
+}
+
+func NewUserDao() *userDao {
+	return &userDao{"gaw", "user", "tags"}
+}
+
+func (userDaoer *userDao) Login(m *model.MessageModel) (*model.UserModel, error) {
+	var userInfo = model.NewUserModel()
+	dbmap, err := sys.GdbDrive.Database(userDaoer.database)
+	if err == nil {
+		sql := "SELECT appid,uid,username,nickname,alias,sex,disabled FROM " + userDaoer.table + " WHERE disabled=0 AND username='" + m.Message["username"] + "' AND password='" + m.Message["password"] + "' AND appid='" + m.Message["appid"] + "'"
+		urow, err := dbmap.Query(sql)
+		if err == nil {
+			urow.Next()
+			err = urow.Scan(&userInfo.Appid, &userInfo.Uid, &userInfo.Username, &userInfo.Nickname, &userInfo.Alias, &userInfo.Sex, &userInfo.Disabled)
+			if err == nil {
+				sql = "SELECT tag FROM " + userDaoer.tagTable + " WHERE uid='" + userInfo.Uid + "'"
+				trow, _ := dbmap.Query(sql)
+				tags := ""
+				for trow.Next() {
+					tags = ""
+					if err := trow.Scan(&tags); err == nil {
+						userInfo.Tag = append(userInfo.Tag, tags)
+					}
+				}
+				return userInfo, nil
+			}
+			return userInfo, err
+		}
+	}
+	return userInfo, err
+}
+
+/**
+ * 网站所有用户
+ */
+type AllUser struct {
+	AllTag   map[string][]string //tag(n:n)用户connId(无逆向推导，与1:n相同数据结构)
+	AllAlias map[string]string   //alias(1:n)用户connId
+	AllUid   map[string]string   //uid(1:n)用户connId
+}
+
+var GallUser *AllUser
+
+/**
+ * 新建
+ */
+func NewAllUser() *AllUser {
+	return &AllUser{
+		AllTag:   make(map[string][]string),
+		AllAlias: make(map[string]string),
+		AllUid:   make(map[string]string),
+	}
+}
+
+func (allUser *AllUser) Run() {
+	var userDaoer = NewUserDao()
+	dbmap, err := sys.GdbDrive.Database(userDaoer.database)
+	if err == nil {
+		sql := "SELECT uid,alias FROM `" + userDaoer.table + "` WHERE `disabled` = '0'"
+		urow, err := dbmap.Query(sql)
+		if err == nil {
+			var uid int
+			var alias, tags string
+			for urow.Next() {
+				alias, uid = "", 0
+				if err := urow.Scan(&uid, &alias); err == nil {
+					allUser.AllUid["u/"+strconv.Itoa(uid)], allUser.AllAlias[alias] = "u/"+strconv.Itoa(uid), "u/"+strconv.Itoa(uid)
+					sql = "SELECT `uid`,`tag` FROM `" + userDaoer.tagTable + "` WHERE `uid` = '" + strconv.Itoa(uid) + "'"
+					trow, _ := dbmap.Query(sql)
+					for trow.Next() {
+						uid, tags = 0, ""
+						if err := trow.Scan(&uid, &tags); err == nil {
+							allUser.AllTag[tags] = append(allUser.AllTag[tags], "u/"+strconv.Itoa(uid))
+						}
+					}
+				}
+			}
+		}
+	}
+}

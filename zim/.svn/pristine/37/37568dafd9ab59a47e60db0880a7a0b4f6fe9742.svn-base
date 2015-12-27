@@ -1,0 +1,66 @@
+package dao
+
+import (
+	"encoding/json"
+	//"fmt"
+	"strconv"
+	"time"
+	"zim/sys"
+)
+
+type ReceiveDao struct {
+	baseDao
+	Cmd     string    `json:"cmd" db:"cmd"` //action
+	SeqCli  int64     `json:"seq_cli"`      //seq_cli
+	SeqSvr  int64     `json:"seq_svr"`      //seq_svr
+	Message []SendDao `json:"message"`      //message
+}
+
+func NewReceiveDao(sessionid string) (r *ReceiveDao) {
+	r = &ReceiveDao{
+		Message: make([]SendDao, 0),
+	}
+	r.SetTableName("zim_msgstore")
+	r.SetSessionid(sessionid)
+	return
+}
+
+func (r *ReceiveDao) Get(req *RequestDao) (err error) {
+	u := NewUserDao(r.sessionid)
+	_, err = u.haveMessage(req.Tuid, req.SeqCli)
+	if err != nil {
+		return
+	}
+	sql := "SELECT `mid`,`rid`,`seq`,`cmd`,`fuid`,`fname`,`to`,`tuid`,`message`,`option`,`stime`,`expired` FROM `" + r.GetTableName() + "` " + "WHERE `tuid`='" + req.Tuid + "' AND `seq`> " + strconv.FormatInt(req.SeqCli, 10) + " ORDER BY `seq` ASC LIMIT 20"
+	dbmap, err := sys.DbHub.Database(u.sessionid, "master")
+	if err != nil {
+		return
+	}
+	urow, err := dbmap.Query(sql)
+	if err != nil {
+		return
+	}
+	//设置seqcli
+	u.setSeq(req.SeqCli, req.Tuid, "c")
+	var seqCli int64 = 0
+	for urow.Next() {
+		sd := NewSendDao(r.sessionid)
+		var message, option string
+		if err := urow.Scan(&sd.mid, &sd.rid, &sd.Seq, &sd.Cmd, &sd.Fuid, &sd.Fname, &sd.To, &sd.Tuid, &message, &option, &sd.Stime, &sd.Expired); err == nil {
+			if sd.Expired > 0 && sd.Stime+int64(sd.Expired) < time.Now().Unix() {
+				continue
+			}
+			if message != "" {
+				json.Unmarshal([]byte(message), &sd.Message)
+			}
+			if option != "" {
+				json.Unmarshal([]byte(option), &sd.Option)
+			}
+			r.Message = append(r.Message, *sd)
+			seqCli = sd.Seq
+		}
+	}
+	r.SeqCli, r.SeqSvr = seqCli, u.SeqSvr
+	r.Cmd = "message"
+	return
+}

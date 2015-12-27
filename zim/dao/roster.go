@@ -1,0 +1,174 @@
+package dao
+
+import (
+	"strconv"
+	"time"
+	"zim/sys"
+)
+
+type RosterDao struct {
+	baseDao
+	uid      string `db:"uid"`
+	fid      string `db:"fid"`
+	gid      string `db:"gid"`
+	timeline int64  `db:"timeline"`
+	Online   int    `json:"online"`
+	User            //好友信息
+}
+
+type RosterGroupDao struct {
+	baseDao
+	Gid      string      `json:"gid" db:"gid"`
+	Gname    string      `json:"gname" db:"gname"`
+	Uid      string      `json:"uid" db:"uid"`
+	num      int64       `json:"num" db:"num"`
+	timeline int64       `db:"timeline"`
+	Roster   []RosterDao `json:"roster"`
+}
+
+func NewRosterDao() (su *RosterDao) {
+	su = &RosterDao{}
+	su.SetTableName("zim_roster")
+	return
+}
+
+func NewRosterGroupDao() (s *RosterGroupDao) {
+	s = &RosterGroupDao{
+		Roster: make([]RosterDao, 0),
+	}
+	s.SetTableName("zim_rostergroup")
+	return
+}
+
+/**
+ * 好友分组、好友列表
+ */
+func (s *RosterGroupDao) Get(uid string) (sm map[string]RosterGroupDao, ss []RosterGroupDao, err error) {
+	sm = make(map[string]RosterGroupDao, 0)
+	ss = make([]RosterGroupDao, 0)
+	sql := "SELECT `gid`,`gname`,`uid`,`num`,`timeline` FROM `" + s.GetTableName() + "` WHERE `uid`=" + uid
+	dbmap, err := sys.DbConn.Database()
+	if err != nil {
+		return
+	}
+	urow, err := dbmap.Query(sql)
+	defer urow.Close()
+	for urow.Next() {
+		sn := NewRosterGroupDao()
+		if err = urow.Scan(&sn.Gid, &sn.Gname, &sn.Uid, &sn.num, &sn.timeline); err == nil {
+			suu := NewRosterDao()
+			if rm, err := suu.GetRoster(sn.Uid, sn.Gid); err == nil {
+				for _, sud := range rm {
+					sn.Roster = append(sn.Roster, sud)
+				}
+			}
+			sm[sn.Gid] = *sn
+			ss = append(ss, *sn)
+		}
+	}
+	return
+}
+
+func (r *RosterGroupDao) DelRosterGroup(uid, gid string) (err error) {
+	dbmap, err := sys.DbConn.Database()
+	if err != nil {
+		return
+	}
+	sql := "DELETE FROM `" + r.GetTableName() + "` WHERE `uid`=? AND `gid`=?"
+	stmt, _ := dbmap.Prepare(sql)
+	defer stmt.Close()
+	_, err = stmt.Exec(uid, gid)
+	return
+}
+
+func (r *RosterGroupDao) AddRosterGroup(uid, gname string) (gid string, err error) {
+	dbmap, err := sys.DbConn.Database()
+	if err != nil {
+		return
+	}
+	sql := "INSERT INTO `" + r.GetTableName() + "`(`uid`,`gname`,`timeline`) VALUES(?,?,?)"
+	stmt, _ := dbmap.Prepare(sql)
+	defer stmt.Close()
+	res, err := stmt.Exec(uid, gname, time.Now().Unix())
+	if err != nil {
+		return
+	}
+	if id, err := res.LastInsertId(); err == nil {
+		r.Gid, gid = strconv.FormatInt(id, 10), strconv.FormatInt(id, 10)
+	}
+	return
+}
+
+func (r *RosterDao) GetRoster(uid, gid string) (rm []RosterDao, err error) {
+	dbmap, err := sys.DbConn.Database()
+	if err != nil {
+		return
+	}
+	sql := "SELECT `uid`,`fid`,`gid`,`timeline` FROM `" + r.GetTableName() + "` WHERE `uid`='" + uid + "'"
+	if gid != "" {
+		sql = "SELECT `uid`,`fid`,`gid`,`timeline` FROM `" + r.GetTableName() + "` WHERE `uid`='" + uid + "' AND `gid`='" + gid + "'"
+	}
+	trow, _ := dbmap.Query(sql)
+	defer trow.Close()
+	u := NewUserDao()
+	for trow.Next() {
+		rr := NewRosterDao()
+		if err = trow.Scan(&rr.uid, &rr.fid, &rr.gid, &rr.timeline); err == nil {
+			u.getUserByUid(rr.fid)
+			rr.User.Uid, rr.User.Appid, rr.User.Nickname, rr.User.Username, rr.User.Sex = rr.fid, u.Appid, u.Nickname, u.Username, u.Sex
+			rm = append(rm, *rr)
+		}
+	}
+	return
+}
+
+func (su *RosterDao) CheckRoster(uid, fid string) (code int, err error) {
+	code = 4026
+	dbmap, err := sys.DbConn.Database()
+	if err != nil {
+		return
+	}
+	sql := "SELECT `uid` FROM `" + su.GetTableName() + "` WHERE `uid`='" + uid + "' AND fid='" + fid + "'"
+	urow, err := dbmap.Query(sql)
+	defer urow.Close()
+	if err == nil {
+		urow.Next()
+		err = urow.Scan(&su.uid)
+		if su.uid == "" {
+			code = 0
+		} else {
+			code = 4025
+		}
+	}
+	return
+}
+
+func (su *RosterDao) AddRoster(uid, fid, gid string) (err error) {
+	dbmap, err := sys.DbConn.Database()
+	if err != nil {
+		return
+	}
+	sql := "INSERT INTO `" + su.GetTableName() + "`(`uid`,`fid`,`gid`,`timeline`) VALUES(?,?,?,?)"
+	stmt, _ := dbmap.Prepare(sql)
+	defer stmt.Close()
+	_, err = stmt.Exec(uid, fid, gid, time.Now().Unix())
+	if err != nil {
+		return
+	}
+	return
+}
+
+func (su *RosterDao) DelRoster(uid, fid, gid string) (err error) {
+	dbmap, err := sys.DbConn.Database()
+	if err != nil {
+		return
+	}
+	sql := "DELETE FROM `" + su.GetTableName() + "` WHERE `uid`=? AND `fid`=? AND `gid`=?"
+	stmt, _ := dbmap.Prepare(sql)
+	defer stmt.Close()
+	_, err = stmt.Exec(uid, fid, gid)
+	if err != nil {
+		return
+	}
+	return
+}

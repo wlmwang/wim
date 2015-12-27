@@ -1,0 +1,226 @@
+package service
+
+import (
+	"encoding/json"
+	//"fmt"
+	"net/http"
+	"zim/common"
+	"zim/dao"
+)
+
+type userSvr struct {
+}
+
+var UserSvr *userSvr
+
+func NewUserSvr() *userSvr {
+	return &userSvr{}
+}
+
+func (u *userSvr) UserSvrHandle(w http.ResponseWriter, r *http.Request) (res string, code int) {
+	switch r.FormValue("act") {
+	case "register":
+		appid := r.FormValue("appid")
+		username := r.FormValue("username")
+		password := r.FormValue("password")
+		nickname := r.FormValue("nickname")
+		sex := r.FormValue("sex")
+		if appid == "" || username == "" || password == "" {
+			code = 2003
+			return
+		}
+		userDao := dao.NewUserDao(common.RandomStr(32))
+		co, _ := userDao.CheckUsername(username, appid)
+		if co != 0 {
+			code = co
+			return
+		}
+		if uid, _ := userDao.AddUser(username, password, nickname, sex, appid); uid == "" {
+			code = 2008
+			return
+		}
+		info, _ := json.Marshal(userDao)
+		res = string(info)
+	case "addsort":
+
+	case "getsort":
+
+	case "delsort":
+
+	case "addfriend":
+		owner := r.FormValue("owner")
+		uid := r.FormValue("uid")
+		sid := r.FormValue("sid")
+		token := r.FormValue("token")
+		if owner == "" || uid == "" || sid == "" || token == "" {
+			code = 2003
+			return
+		}
+		su := dao.NewSuserDao(token)
+		co, _ := su.CheckFriend(owner, uid)
+		if co != 0 {
+			code = co
+			return
+		}
+		id, err := su.AddFriend(owner, uid, sid)
+		if err != nil {
+			code = 2010
+			return
+		}
+		//info, _ := json.Marshal(`{id:"` + id + `"}`)
+		//res = string(info)
+	case "agreefriend":
+		owner := r.FormValue("owner")
+		uid := r.FormValue("uid")
+		sid := r.FormValue("sid")
+		token := r.FormValue("token")
+		if owner == "" || uid == "" || sid == "" || token == "" {
+			code = 2003
+			return
+		}
+		su := dao.NewSuserDao(token)
+		co, _ := su.CheckFriend(owner, uid)
+		if co != 0 {
+			code = co
+			return
+		}
+		id, err := su.AddFriend(owner, uid, sid)
+		if err != nil {
+			code = 2010
+			return
+		}
+		//info, _ := json.Marshal(`{id:"` + id + `"}`)
+		//res = string(info)
+	case "delfriend":
+
+	case "getfriend":
+		appid := r.FormValue("appid")
+		uid := r.FormValue("uid")
+		token := r.FormValue("token")
+		if appid == "" || uid == "" || token == "" {
+			code = 2003
+			return
+		}
+		sortDao := dao.NewSortDao(token)
+		if _, s, err := sortDao.Get(uid); err == nil {
+			//在线状态
+			for i, sd := range s {
+				for k, u := range sd.Suser {
+					if _, islogin := LoginSvr.CheckLogin("u/" + u.Uid); islogin {
+						s[i].Suser[k].Online = 1
+					} else {
+						s[i].Suser[k].Online = 0
+					}
+				}
+			}
+			//end
+			info, _ := json.Marshal(s)
+			res = string(info)
+		}
+	case "addgroup":
+		uid := r.FormValue("uid")
+		gname := r.FormValue("gname")
+		token := r.FormValue("token")
+		if uid == "" || gname == "" || token == "" {
+			code = 2003
+			return
+		}
+		gd := dao.NewGroupDao(token)
+		if gd.AddGroup(uid, gname); gd.Gid == "" {
+			code = 2010
+			return
+		}
+		//info, _ := json.Marshal(gd)
+		//res = string(info)
+	case "delgroup":
+
+	case "getgroup":
+		uid := r.FormValue("uid")
+		token := r.FormValue("token")
+		if uid == "" || token == "" {
+			code = 2003
+			return
+		}
+		groupDao := dao.NewGroupDao(token)
+		if _, g, err := groupDao.Get(uid); err == nil {
+			info, _ := json.Marshal(g)
+			res = string(info)
+		}
+	case "getguser":
+		uid := r.FormValue("uid")
+		gid := r.FormValue("gid")
+		token := r.FormValue("token")
+		if uid == "" || gid == "" || token == "" {
+			code = 2003
+			return
+		}
+		gu := dao.NewGuserDao(token)
+		if sg, err := gu.GetGuser(uid, gid); err == nil {
+			//在线状态
+			for i, u := range sg {
+				if _, islogin := LoginSvr.CheckLogin("u/" + u.Uid); islogin {
+					sg[i].Online = 1
+				} else {
+					sg[i].Online = 0
+				}
+			}
+			//end
+			info, _ := json.Marshal(sg)
+			res = string(info)
+		}
+	case "joingroup":
+		uid := r.FormValue("uid")
+		gid := r.FormValue("gid")
+		token := r.FormValue("token")
+		if uid == "" || gid == "" || token == "" {
+			code = 2003
+			return
+		}
+		gu := dao.NewGuserDao(token)
+		is, err := gu.IsJoinGroup(uid, gid)
+		if is {
+			code = 2012
+			return
+		}
+		id, err := gu.JoinGroup(uid, gid)
+		if err != nil {
+			code = 2010
+			return
+		}
+		//info, _ := json.Marshal(`{id:"` + id + `"}`)
+		//res = string(info)
+	case "abortuser": //退出群
+		uid := r.FormValue("uid")
+		gid := r.FormValue("gid")
+		token := r.FormValue("token")
+		if uid == "" || gid == "" || token == "" {
+			code = 2003
+			return
+		}
+		gu := dao.NewGuserDao(token)
+		is, err := gu.IsJoinGroup(uid, gid)
+		if !is {
+			code = 2015
+			return
+		}
+
+		abort, err := gu.Abortuser(uid, gid)
+		if err != nil {
+			code = 2010
+			return
+		}
+		//info, _ := json.Marshal(`{id:"` + id + `"}`)
+		//res = string(info)
+	case "removeuser": //群踢人
+
+	case "addtag":
+
+	case "deltag":
+
+	case "gettag":
+
+	default:
+		code = 4012
+	}
+	return
+}

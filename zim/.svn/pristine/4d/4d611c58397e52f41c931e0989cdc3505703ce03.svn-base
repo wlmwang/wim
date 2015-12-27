@@ -1,0 +1,32 @@
+// Copyright 2014 G&W. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package dao
+
+import (
+	"encoding/json"
+	"fmt"
+	"gaw/model"
+	"gaw/sys"
+)
+
+type sessionDao struct {
+}
+
+var SessionDao = sessionDao{}
+
+func (session *sessionDao) GetSession(sessionId string) (*model.UserModel, error) {
+	var userInfo *model.UserModel
+	mc := sys.MemcachePool.GetMemcache("login_memcache")
+	it, err := mc.Get("fmsession_" + sessionId)
+	if err != nil {
+		fmt.Println("memcache 获取不到", sessionId)
+		return userInfo, err
+	}
+	if err := json.Unmarshal(it.Value, &userInfo); err != nil {
+		fmt.Println("memcache Session 不正确", string(it.Value))
+		return userInfo, err
+	}
+	return userInfo, err
+}

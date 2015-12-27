@@ -1,0 +1,141 @@
+package dao
+
+import (
+	"strconv"
+	"time"
+	"zim/sys"
+)
+
+type GuserDao struct {
+	baseDao
+	id  string `db:"id"`
+	gid string `json:"gid" db:"gid"`
+	UserRealTimeDao
+}
+
+type GroupDao struct {
+	baseDao
+	Gid      string `json:"gid" db:"gid"`
+	Gname    string `json:"gname" db:"gname"`
+	Uid      string `json:"uid" db:"uid"`
+	disabled int    `db:"disabled"` //是否禁用
+	Guser    []GuserDao
+}
+
+func NewGuserDao(sessionid string) (gu *GuserDao) {
+	gu = &GuserDao{}
+	gu.SetTableName("zim_guser")
+	gu.SetSessionid(sessionid)
+	return
+}
+
+func NewGroupDao(sessionid string) (g *GroupDao) {
+	g = &GroupDao{
+		Guser: make([]GuserDao, 0),
+	}
+	g.SetTableName("zim_group")
+	g.SetSessionid(sessionid)
+	return
+}
+
+func (g *GroupDao) Get(uid string) (gm map[string]GroupDao, sm []GroupDao, err error) {
+	gm = make(map[string]GroupDao, 0)
+	sm = make([]GroupDao, 0)
+	gu := NewGuserDao(g.sessionid)
+	sql := "SELECT g.`gid`,g.`gname`,g.`uid`,g.`disabled` FROM `" + g.GetTableName() + "` AS g INNER JOIN  `" + gu.GetTableName() + "` AS gu ON gu.`gid`=g.`gid` WHERE `disabled`=0 AND gu.`uid`=" + uid + " GROUP BY g.gid"
+	dbmap, err := sys.DbHub.Database(g.sessionid, "master")
+	if err != nil {
+		return
+	}
+	u := NewUserDao(g.sessionid)
+	urow, err := dbmap.Query(sql)
+	for urow.Next() {
+		gn := NewGroupDao(g.sessionid)
+		if err = urow.Scan(&gn.Gid, &gn.Gname, &gn.Uid, &gn.disabled); err == nil {
+			sql = "SELECT `id`,`uid`,`gid` FROM `" + gu.GetTableName() + "` WHERE gid='" + gn.Gid + "'"
+			trow, _ := dbmap.Query(sql)
+			for trow.Next() {
+				guu := NewGuserDao(g.sessionid)
+				if err = trow.Scan(&guu.id, &guu.Uid, &guu.gid); err == nil {
+					u.GetUserInfo(guu.Uid)
+					guu.Appid, guu.Nickname, guu.Username, guu.Sex = u.Appid, u.Nickname, u.Username, u.Sex
+					gn.Guser = append(gn.Guser, *guu)
+				}
+			}
+			gm[gn.Gid] = *gn
+			sm = append(sm, *gn)
+		}
+	}
+	return
+}
+
+func (gu *GuserDao) GetGuser(uid, gid string) (sm []GuserDao, err error) {
+	dbmap, err := sys.DbHub.Database(gu.sessionid, "master")
+	if err != nil {
+		return
+	}
+	sql := "SELECT `id`,`uid`,`gid` FROM `" + gu.GetTableName() + "` WHERE gid='" + gid + "'"
+	trow, _ := dbmap.Query(sql)
+	u := NewUserDao(gu.sessionid)
+	for trow.Next() {
+		if err = trow.Scan(&gu.id, &gu.Uid, &gu.gid); err == nil {
+			u.GetUserInfo(gu.Uid)
+			gu.Appid, gu.Nickname, gu.Username, gu.Sex = u.Appid, u.Nickname, u.Username, u.Sex
+			sm = append(sm, *gu)
+		}
+	}
+	return
+}
+
+func (g *GroupDao) AddGroup(uid, gname string) (gid string, err error) {
+	dbmap, err := sys.DbHub.Database(g.sessionid, "master")
+	if err != nil {
+		return
+	}
+	sql := "INSERT INTO `" + g.GetTableName() + "`(`uid`,`gname`,`timeline`) VALUES(?,?,?)"
+	stmt, _ := dbmap.Prepare(sql)
+	defer stmt.Close()
+	res, err := stmt.Exec(uid, gname, time.Now().Unix())
+	if err != nil {
+		return
+	}
+	if id, err := res.LastInsertId(); err == nil {
+		g.Gid, gid = strconv.FormatInt(id, 10), strconv.FormatInt(id, 10)
+	}
+	return
+}
+
+func (g *GuserDao) IsJoinGroup(uid, gid string) (is bool, err error) {
+	dbmap, err := sys.DbHub.Database(g.sessionid, "master")
+	if err != nil {
+		return
+	}
+	sql := "SELECT `id` FROM `" + g.GetTableName() + "` WHERE `uid`='" + uid + "' AND gid='" + gid + "'"
+	urow, err := dbmap.Query(sql)
+	if err == nil {
+		urow.Next()
+		err = urow.Scan(&g.id)
+		if g.id != "" {
+			is = true
+		}
+	}
+	return
+}
+
+func (g *GuserDao) JoinGroup(uid, gid string) (id string, err error) {
+	dbmap, err := sys.DbHub.Database(g.sessionid, "master")
+	if err != nil {
+		return
+	}
+	sql := "INSERT INTO `" + g.GetTableName() + "`(`uid`,`gid`,`timeline`) VALUES(?,?,?)"
+	stmt, _ := dbmap.Prepare(sql)
+	defer stmt.Close()
+	res, err := stmt.Exec(uid, gid, time.Now().Unix())
+	if err != nil {
+		return
+	}
+	if i, err := res.LastInsertId(); err == nil {
+		id = strconv.FormatInt(i, 10)
+	}
+	return
+}

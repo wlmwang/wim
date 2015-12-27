@@ -1,0 +1,19 @@
+package common
+
+import (
+	"net/http"
+	"zim/model"
+)
+
+type Isocket interface {
+	Connect(w http.ResponseWriter, r *http.Request) (int, error) //连接
+	DisConnect() error                                           //关闭
+	Write(int, []byte) error                                     //底层发送消息到客户端,第一个参数为类型（如websocket.PingMessage）
+	SendText([]byte) error                                       //发送文本
+	PingMessage() error                                          //ping 连接设备
+	GetDeviceType() (string, error)                              //获取设备
+	GetConnId() (string, error)                                  //获取连接字符
+	GetUser() (*model.UserModel, error)                          //获取用户信息
+	SetUser(*model.UserModel) (bool, error)                      //设置连接用户信息
+	MessageHandle() error                                        //消息处理器
+}

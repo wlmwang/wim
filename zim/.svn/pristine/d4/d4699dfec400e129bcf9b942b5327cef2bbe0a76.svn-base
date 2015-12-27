@@ -1,0 +1,34 @@
+package dao
+
+type UserDao struct {
+	BaseDao
+	Uid      string   `json:"uid" db:"uid"`            //用户id
+	Username string   `json:"username"  db:"username"` //用户名
+	Appid    int      `json:"appid"  db:"appid"`       //用户服务器
+	Nickname string   `json:"nickname"  db:"nickname"` //昵称
+	Sex      string   `json:"sex"  db:"sex"`           //性别
+	Password string   `json:"password"  db:"password"` //密码
+	Disabled int      `json:"disabled"  db:"disabled"` //是否禁用
+	Alias    string   `json:"alias"  db:"alias"`       //用户标识符
+	Tag      []string `json:"tag"  db:"tag"`           //用户分组
+}
+
+func NewUserDao() *UserDao {
+	userDao = UserDao{}
+	userDao.SetTableName("user")
+	return &userDao
+}
+
+func (u *UserDao) Login(username, password, appid string) error {
+	dbmap, err := sys.GdbDrive.Database(u.GetTableName())
+	if err != nil {
+		return err
+	}
+	sql := "SELECT appid,uid,username,nickname,alias,sex,disabled FROM " + u.GetTableName() + " WHERE disabled=0 AND username='" + username + "' AND password='" + password + "' AND appid='" + appid + "'"
+	urow, err := dbmap.Query(sql)
+	if err == nil {
+		urow.Next()
+		return urow.Scan(&u.Appid, &u.Uid, &u.Username, &u.Nickname, &u.Alias, &u.Sex, &u.Disabled)
+	}
+	return err
+}

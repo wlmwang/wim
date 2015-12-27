@@ -1,0 +1,287 @@
+package service
+
+import (
+	"encoding/json"
+	"net/http"
+	"time"
+	"zim/dao"
+)
+
+type userSvr struct{}
+
+var UserSvr *userSvr
+
+func NewUserSvr() *userSvr {
+	return &userSvr{}
+}
+
+func (u *userSvr) UserSvrHandle(w http.ResponseWriter, r *http.Request) (res string, code int) {
+	//defer common.HandleError()
+	switch r.FormValue("act") {
+	case "register":
+		appid := r.FormValue("appid")
+		username := r.FormValue("username")
+		password := r.FormValue("password")
+		nickname := r.FormValue("nickname")
+		sex := r.FormValue("sex")
+		uid := r.FormValue("uid")
+		if appid == "" || username == "" || password == "" {
+			code = 4008
+			return
+		}
+		userDao := dao.NewUserDao()
+		co, _ := userDao.CheckUsername(username, appid)
+		if co != 0 {
+			code = co
+			return
+		}
+		if id, _ := userDao.AddUser(uid, username, password, nickname, sex, appid); id == "" {
+			code = 4016
+			return
+		}
+		info, _ := json.Marshal(userDao)
+		res = string(info)
+	case "addrostergroup":
+		uid := r.FormValue("uid")
+		gname := r.FormValue("gname")
+		if uid == "" || gname == "" {
+			code = 4008
+			return
+		}
+		gd := dao.NewRosterGroupDao()
+		if gid, err := gd.AddRosterGroup(uid, gname); gid == "" || err != nil {
+			code = 4018
+			return
+		}
+	case "getrostergroup":
+		uid := r.FormValue("uid")
+		if uid == "" {
+			code = 4008
+			return
+		}
+		gd := dao.NewRosterGroupDao()
+		if _, g, err := gd.Get(uid); err == nil {
+			info, _ := json.Marshal(g)
+			res = string(info)
+		}
+	case "delrostergroup":
+		uid := r.FormValue("uid")
+		gid := r.FormValue("gid")
+		if uid == "" || gid == "" {
+			code = 4008
+			return
+		}
+		gd := dao.NewRosterGroupDao()
+		if err := gd.DelRosterGroup(uid, gid); err != nil {
+			code = 4019
+			return
+		}
+	case "addroster":
+		uid := r.FormValue("uid")
+		fid := r.FormValue("fid")
+		gid := r.FormValue("gid")
+		if uid == "" || fid == "" || gid == "" {
+			code = 4008
+			return
+		}
+		su := dao.NewRosterDao()
+		co, _ := su.CheckRoster(uid, fid)
+		if co != 0 {
+			code = co
+			return
+		}
+		err := su.AddRoster(uid, fid, gid)
+		if err != nil {
+			code = 4023
+			return
+		}
+	case "delroster":
+		uid := r.FormValue("uid")
+		fid := r.FormValue("fid")
+		gid := r.FormValue("gid")
+		if uid == "" || fid == "" || gid == "" {
+			code = 4008
+			return
+		}
+		su := dao.NewRosterDao()
+		err := su.DelRoster(uid, fid, gid)
+		if err != nil {
+			code = 4024
+			return
+		}
+	case "getroster":
+		uid := r.FormValue("uid")
+		if uid == "" {
+			code = 4008
+			return
+		}
+		r := dao.NewRosterGroupDao()
+		if _, s, err := r.Get(uid); err == nil {
+			for i, sd := range s {
+				for k, u := range sd.Roster {
+					if _, islogin := LoginSvr.CheckLogin("u/" + u.User.Uid); islogin {
+						s[i].Roster[k].Online = 1
+					} else {
+						s[i].Roster[k].Online = 0
+					}
+				}
+			}
+			info, _ := json.Marshal(s)
+			res = string(info)
+		}
+	case "addgroup":
+		gid := r.FormValue("gid")
+		uid := r.FormValue("uid")
+		gname := r.FormValue("gname")
+		gtype := r.FormValue("gtype")
+		if uid == "" || gname == "" || gtype == "" {
+			code = 4008
+			return
+		}
+		gd := dao.NewGroupDao()
+		if gid, err := gd.AddGroup(gid, uid, gname, gtype); gid == "" || err != nil {
+			code = 4020
+			return
+		}
+	case "delgroup":
+		uid := r.FormValue("uid")
+		gid := r.FormValue("gid")
+		if uid == "" || gid == "" {
+			code = 4008
+			return
+		}
+		gd := dao.NewGroupDao()
+		if err := gd.DelGroup(uid, gid); err != nil {
+			code = 4021
+			return
+		}
+	case "getgroup":
+		uid := r.FormValue("uid")
+		if uid == "" {
+			code = 4008
+			return
+		}
+		gd := dao.NewGroupDao()
+		if _, g, err := gd.Get(uid); err == nil {
+			info, _ := json.Marshal(g)
+			res = string(info)
+		}
+	case "getgroupuser":
+		uid := r.FormValue("uid")
+		gid := r.FormValue("gid")
+		if uid == "" || gid == "" {
+			code = 4008
+			return
+		}
+		gu := dao.NewGroupUserDao()
+		if sg, err := gu.GetGroupUser(gid, "normal"); err == nil {
+			//在线状态
+			for i, u := range sg {
+				if _, islogin := LoginSvr.CheckLogin("u/" + u.Uid); islogin {
+					sg[i].Online = 1
+				} else {
+					sg[i].Online = 0
+				}
+			}
+			//end
+			info, _ := json.Marshal(sg)
+			res = string(info)
+		}
+	case "joingroup":
+		uid := r.FormValue("uid")
+		gid := r.FormValue("gid")
+		if uid == "" || gid == "" {
+			code = 4008
+			return
+		}
+		gu := dao.NewGroupUserDao()
+		is, err := gu.IsJoinGroup(uid, gid)
+		if is {
+			code = 4023
+			return
+		}
+		_, err = gu.JoinGroup(uid, gid)
+		if err != nil {
+			code = 4022
+			return
+		}
+	case "removegroupuser": //退出群
+		uid := r.FormValue("uid")
+		gid := r.FormValue("gid")
+		if uid == "" || gid == "" {
+			code = 4008
+			return
+		}
+		gu := dao.NewGroupUserDao()
+		is, err := gu.IsJoinGroup(uid, gid)
+		if !is {
+			code = 4024
+			return
+		}
+		err = gu.RemoveGroupUser(uid, gid)
+		if err != nil {
+			code = 4024
+			return
+		}
+	case "addtag":
+		tname := r.FormValue("tname")
+		uid := r.FormValue("uid")
+		if uid == "" || tname == "" {
+			code = 4008
+			return
+		}
+		td := dao.NewTagDao()
+		if tid, err := td.AddTag(uid, tname); tid == "" || err != nil {
+			code = 4029
+			return
+		}
+	case "deltag":
+		tname := r.FormValue("tname")
+		uid := r.FormValue("uid")
+		if uid == "" || tname == "" {
+			code = 4008
+			return
+		}
+		td := dao.NewTagDao()
+		err := td.DelTag(uid, tname)
+		if err != nil {
+			code = 4030
+			return
+		}
+	case "gettag":
+		tname := r.FormValue("tname")
+		uid := r.FormValue("uid")
+		if uid == "" || tname == "" {
+			code = 4008
+			return
+		}
+		td := dao.NewTagDao()
+		if err := td.GetTagByUT(uid, tname); err != nil {
+			code = 4031
+			return
+		} else {
+			info, _ := json.Marshal(td)
+			res = string(info)
+		}
+	case "message":
+		message := r.FormValue("message")
+		req := dao.NewRequestDao()
+		if err := json.Unmarshal([]byte(message), req); err != nil {
+			code = 4008
+			return
+		}
+		if req.Expired == 0 {
+			req.Expired = 86400 * 30
+		}
+		if req.Stime <= 0 {
+			req.Stime = time.Now().Unix()
+		}
+		if _, err := req.Save(); err == nil {
+			SendSrv.req <- req
+		}
+	default:
+		code = 4008
+	}
+	return
+
+}

@@ -1,0 +1,153 @@
+// Copyright 2014 G&W. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package service
+
+import (
+	"encoding/json"
+	"io/ioutil"
+	"math/rand"
+	"net/http"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+	"zim/common"
+	"zim/dao"
+	"zim/sys"
+)
+
+type loginSvr struct {
+	lock      *sync.RWMutex
+	online    int
+	tToServer map[string]connection
+	uToToken  map[string]string
+}
+
+var LoginSvr *loginSvr
+
+func NewLoginSvr() *loginSvr {
+	return &loginSvr{
+		lock:      new(sync.RWMutex),
+		tToServer: make(map[string]connection),
+		uToToken:  make(map[string]string),
+	}
+}
+
+func (l *loginSvr) LoginSvrHandle(w http.ResponseWriter, r *http.Request) (res string, code int) {
+	l.lock.RLock()
+	defer l.lock.RUnlock()
+	if l.online >= sys.BaseConf.Get("online").MustInt() {
+		code = 2007
+		return
+	}
+	switch r.FormValue("act") {
+	case "login":
+		appid := r.FormValue("appid")
+		username := r.FormValue("username")
+		password := r.FormValue("password")
+		userDao := dao.NewUserDao()
+		if userDao.Login(username, password, appid); userDao.Uid == "" {
+			code = 2005
+			return
+		}
+		if token, ok := l.uToToken[userDao.Uid]; ok && r.FormValue("force") == "" {
+			code = 2001
+			return
+		} else {
+			delete(l.tToServer, token)
+		}
+		//rand token start
+		t, i := common.RandomStr(32), 0
+		for _, ok := l.tToServer[t]; ok; i++ {
+			t = common.RandomStr(32)
+			if i > 20 {
+				code = 2006
+				break
+			}
+		}
+		//end
+		//rand server start
+		seed := rand.New(rand.NewSource(time.Now().UnixNano()))
+		nss, _ := sys.BaseConf.Get("ns").Map()
+		ns, _ := sys.BaseConf.Get("ns").Get(strconv.Itoa(seed.Intn(len(nss)))).Map()
+		//end
+		if code == 0 {
+			c := connection{}
+			c.CliSck = r.RemoteAddr
+			c.SvrIp = ns["ip"].(string)
+			c.SvrPort = ns["port"].(string)
+			c.User = userDao
+			c.Device = common.GetDevice(r)
+			c.Token = t
+
+			l.tToServer[t] = c
+			l.uToToken[userDao.Uid] = t
+			l.online = len(l.tToServer)
+
+			info, _ := json.Marshal(c)
+			res = string(info)
+		}
+	case "islogin":
+		token := r.FormValue("token")
+		uid := r.FormValue("uid")
+		code = 2002
+		if token != "" {
+			if ls, ok := l.tToServer[token]; ok {
+				if js, err := json.Marshal(ls); err == nil {
+					res = string(js)
+					code = 0
+				}
+			}
+		} else if uid != "" {
+			if token, ok := l.uToToken[uid]; ok {
+				if ls, ok := l.tToServer[token]; ok {
+					if js, err := json.Marshal(ls); err == nil {
+						res = string(js)
+						code = 0
+					}
+				}
+			}
+		}
+	case "logout":
+		token := r.FormValue("token")
+		if ls, ok := l.tToServer[token]; ok {
+			delete(l.tToServer, token)
+			delete(l.uToToken, ls.User.Uid)
+			l.online--
+		} else {
+			code = 2002
+		}
+	default:
+		code = 4012
+	}
+	return
+}
+
+func (l *loginSvr) CheckLogin(query, t string) (res string, islogin bool) {
+	ls, _ := sys.BaseConf.Get("ls").Map()
+	for i := 0; i < len(ls); i++ {
+		dd, _ := sys.BaseConf.Get("ls").Get(strconv.Itoa(i)).Map()
+		url := ""
+		if t == "t" {
+			url = "http://" + dd["ip"].(string) + ":" + dd["port"].(string) + "/ls?act=islogin&token=" + query
+		} else {
+			url = "http://" + dd["ip"].(string) + ":" + dd["port"].(string) + "/ls?act=islogin&uid=" + query
+		}
+		resp, _ := http.Get(url)
+		defer resp.Body.Close()
+		stat := strings.Split(resp.Status, " ")
+		if stat[0] != "200" {
+			continue
+		}
+		if result, err := ioutil.ReadAll(resp.Body); err == nil {
+			res = string(result)
+		} else {
+			continue
+		}
+		islogin = true
+		break
+	}
+	return
+}

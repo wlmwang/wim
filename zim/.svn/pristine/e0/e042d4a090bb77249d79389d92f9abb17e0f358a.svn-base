@@ -1,0 +1,174 @@
+// Copyright 2014 G&W. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package service
+
+import (
+	"errors"
+	"github.com/gorilla/websocket"
+	"net/http"
+	"strings"
+	"time"
+	"zim/dao"
+)
+
+const (
+	writeWait      = 30 * time.Second //Time allowed to write a message to the peer.
+	pongWait       = 60 * time.Second //Time allowed to read the next pong message from the peer.
+	maxMessageSize = 1024             //Maximum message size allowed from peer.
+	pingPeriod     = (pongWait * 9) / 10
+)
+
+type connection struct {
+	Token    string       //标示该连接的随机字符。
+	Device   string       //设备类型（web、ios、android、winphone）
+	Disabled bool         //true关闭
+	UserInfo *dao.UserDao //用户句柄
+}
+type connectSvr struct {
+	ws *websocket.Conn //websocket connection
+	connection
+}
+
+func NewConnectSvr() *ConnectSvr {
+	return &ConnectSvr{
+		Connection: Connection{UserInfo: new(model.UserModel)},
+	}
+}
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  maxMessageSize,
+	WriteBufferSize: maxMessageSize,
+}
+
+/**
+ * 连接
+ */
+func (c *ConnectSvr) connect(w http.ResponseWriter, r *http.Request) (int, error) {
+	ws, err := upgrader.Upgrade(w, r, nil)
+	if _, ok := err.(websocket.HandshakeError); ok {
+		return 4011, errors.New(sys.LangConf.Get("4011").MustString())
+	} else if err != nil {
+		return 4012, errors.New(sys.LangConf.Get("4012").MustString())
+	}
+	c.ws = ws
+	c.Token = r.FormValue("token")
+	c.Disabled = false
+	//连接设备
+	UserAgent := r.Header.Get("User-Agent")
+	if strings.Contains(UserAgent, "Mozilla") {
+		c.DeviceT = "web"
+	} else if strings.Contains(UserAgent, "Ios") {
+		c.Device = "ios"
+	} else if strings.Contains(UserAgent, "Android") {
+		c.Device = "android"
+	} else {
+		c.Device = "others"
+	}
+	//添加连接池
+	ConnectHub.add(c)
+	return 0, err
+}
+
+func (c *connectSvr) discon() error {
+	c.Disabled = true
+	c.ws.Close()
+	return nil
+}
+
+func (c *connectSvr) getToken() (string, error) {
+	if c.Disabled == true {
+		return c.Token, errors.New(sys.LangConf.Get("2020").MustString())
+	}
+	return c.Token, nil
+}
+
+func (c *connectSvr) getDevice() (string, error) {
+	if c.Disabled == true {
+		return "", errors.New(sys.LangConf.Get("2020").MustString())
+	}
+	return c.Device, nil
+}
+
+func (c *connectSvr) setUser(user *dao.UserDao) (bool, error) {
+	if c.Disabled == true {
+		return false, errors.New(sys.LangConf.Get("2020").MustString())
+	}
+	c.UserInfo = user
+	return true, nil
+}
+
+func (c *connectSvr) getUser() (*dao.UserDao, error) {
+	if c.Disabled == true {
+		return nil, errors.New(sys.LangConf.Get("2020").MustString())
+	}
+	if user := c.UserInfo; user == nil || user.Uid == "" {
+		return nil, errors.New(sys.LangConf.Get("2002").MustString())
+	}
+	return c.UserInfo, nil
+}
+
+func (c *connectSvr) sendText(message []byte) error {
+	if token, err := c.GetToken(); err != nil {
+		return errors.New(sys.LangConf.Get("2020").MustString())
+	}
+	return c.write(websocket.TextMessage, message)
+}
+
+func (c *connectSvr) sendBinary(message []byte) error {
+	if token, err := c.GetToken(); err != nil {
+		return errors.New(sys.LangConf.Get("2020").MustString())
+	}
+	return c.write(websocket.BinaryMessage, message)
+}
+
+func (c *connectSvr) ping() error {
+	return c.write(websocket.PingMessage, []byte{})
+}
+
+/**
+ * 循环读取消息
+ */
+func (c *connectSvr) reader() (err error) {
+	defer func() {
+		token, _ := c.GetToken()
+		service.ConnectHub.Close(token)
+	}()
+	c.ws.SetReadLimit(maxMessageSize)
+	c.ws.SetReadDeadline(time.Now().Add(pongWait))
+	c.ws.SetPongHandler(func(string) error { c.ws.SetReadDeadline(time.Now().Add(pongWait)); return nil })
+	for {
+		_, message, err := c.ws.ReadMessage()
+		if err != nil {
+			break
+		}
+		service.MessageSrv.parse(c, message)
+	}
+	return err
+}
+
+func (c *connectSvr) writer() {
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		token, _ := c.GetToken()
+		service.ConnectHub.Close(token)
+	}()
+	for {
+		select {
+		case <-ticker.C:
+			if err := c.ping(); err != nil {
+				return
+			}
+		}
+	}
+}
+
+/**
+ * write writes a message with the given message type and payload.
+ */
+func (c *connectSvr) write(mt int, payload []byte) error {
+	c.ws.SetWriteDeadline(time.Now().Add(writeWait))
+	return c.ws.WriteMessage(mt, payload)
+}

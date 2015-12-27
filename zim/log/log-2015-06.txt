@@ -1,0 +1,22 @@
+2015/06/01 15:19:22 D:/golang/src/zim/service/receiveSvr.go:52: info: 消息格式不正确 <nil>
+2015/06/01 16:04:08 D:/golang/src/zim/service/receiveSvr.go:52: info: 消息格式不正确 <nil>
+2015/06/01 18:13:42 D:/golang/src/zim/main.go:44: info:禁止method方法
+2015/06/01 18:13:42 D:/golang/src/zim/main.go:56: info:请求不合法
+2015/06/01 18:53:44 D:/golang/src/zim/service/receiveSvr.go:52: info: 消息格式不正确 <nil>
+2015/06/01 18:53:45 D:/golang/src/zim/service/receiveSvr.go:52: info: 消息格式不正确 <nil>
+2015/06/02 12:41:32 D:/golang/src/zim/service/receiveSvr.go:49: info:连接已失效
+2015/06/02 12:41:43 D:/golang/src/zim/service/receiveSvr.go:49: info:连接已失效
+2015/06/02 13:03:02 D:/golang/src/zim/service/receiveSvr.go:49: info:连接已失效
+2015/06/02 13:03:12 D:/golang/src/zim/service/receiveSvr.go:49: info:连接已失效
+2015/06/02 13:03:23 D:/golang/src/zim/service/receiveSvr.go:49: info:连接已失效
+2015/06/02 13:03:31 D:/golang/src/zim/service/receiveSvr.go:49: info:连接已失效
+2015/06/02 13:03:42 D:/golang/src/zim/service/receiveSvr.go:49: info:连接已失效
+2015/06/02 13:04:57 D:/golang/src/zim/service/receiveSvr.go:49: info:连接已失效
+2015/06/02 13:05:04 D:/golang/src/zim/service/receiveSvr.go:49: info:连接已失效
+2015/06/02 13:05:20 D:/golang/src/zim/service/receiveSvr.go:49: info:连接已失效
+2015/06/02 14:15:59 D:/golang/src/zim/service/receiveSvr.go:52: info:连接已失效
+2015/06/02 14:16:01 D:/golang/src/zim/service/receiveSvr.go:52: info:连接已失效
+2015/06/02 14:16:09 D:/golang/src/zim/service/receiveSvr.go:52: info:连接已失效
+2015/06/02 14:18:34 D:/golang/src/zim/service/receiveSvr.go:49: info:连接已失效
+2015/06/02 14:18:37 D:/golang/src/zim/service/receiveSvr.go:49: info:连接已失效
+2015/06/02 14:19:48 D:/golang/src/zim/service/receiveSvr.go:49: info:连接已失效

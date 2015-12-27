@@ -1,0 +1,13 @@
+2015/05/07 16:19:17 D:/golang/src/zim/service/requestSvr.go:33: fatal: 消息格式不正确[object Object]invalid character 'o' looking for beginning of value
+2015/05/07 16:21:07 D:/golang/src/zim/service/requestSvr.go:33: fatal: 消息格式不正确[object Object]invalid character 'o' looking for beginning of value
+2015/05/07 16:23:06 D:/golang/src/zim/service/requestSvr.go:33: fatal: 消息格式不正确[object Object]invalid character 'o' looking for beginning of value
+2015/05/07 16:25:02 D:/golang/src/zim/service/requestSvr.go:35: fatal: 消息格式不正确[object Object]invalid character 'o' looking for beginning of value
+2015/05/07 16:28:11 D:/golang/src/zim/service/requestSvr.go:35: fatal: 消息格式不正确{"cmd":"receive","sequence":52,"fuid":"1","fname":"admin"}json: cannot unmarshal number into Go value of type string
+2015/05/07 16:31:29 D:/golang/src/zim/common/common.go:74: runtime error: slice bounds out of range
+2015/05/07 21:27:06 D:/golang/src/zim/service/requestSvr.go:34: fatal: 消息格式不正确{"cmd":"send","to":"u/2","stime":1431005226.823,"message":{"content":"ppppppppppppppppppppppppppp"}}json: cannot unmarshal number 1431005226.823 into Go value of type int64
+2015/05/07 21:30:28 D:/golang/src/zim/common/common.go:74: runtime error: invalid memory address or nil pointer dereference
+2015/05/08 10:49:32 D:/golang/src/zim/service/requestSvr.go:34: fatal: 消息格式不正确{"cmd":"receive","seq_cli":"0","fuid":"1","fname":"admin","to":"u/2","tuid":""}json: cannot unmarshal string into Go value of type int64
+2015/05/08 14:36:39 D:/golang/src/zim/service/receiveSvr.go:41: fatal: 消息格式不正确<nil>
+2015/05/08 14:38:30 D:/golang/src/zim/service/receiveSvr.go:41: fatal: 消息格式不正确<nil>
+2015/05/08 14:50:14 D:/golang/src/zim/service/receiveSvr.go:45: fatal: 消息格式不正确<nil>
+2015/05/08 15:53:13 D:/golang/src/zim/service/requestSvr.go:34: fatal: 消息格式不正确{"cmd":"receive","seq_cli":"0","tuid":"2"}json: cannot unmarshal string into Go value of type int64

@@ -1,0 +1,149 @@
+// Copyright 2014 G&W. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package sys
+
+import (
+	"errors"
+	"fmt"
+	"gaw/protocol"
+	"sync"
+	"time"
+)
+
+const (
+	pingPeriod = 10 * time.Second
+)
+
+/**
+ * 连接池
+ */
+type connectHub struct {
+	lock      *sync.RWMutex       //锁
+	broadcast chan []byte         //广播消息
+	cList     common.Isocket      //所有连接token
+	aList     map[string]string   //alias(1:1)用户token
+	uList     map[string]string   //uid(1:1)用户token
+	tList     map[string][]string //tag(n:n)用户token
+
+}
+
+var ConnectHub *connectHub
+
+func NewConnectHub() *connectHub {
+	return &connectHub{
+		lock:      new(sync.RWMutex),
+		broadcast: make(chan []byte),
+		aList:     make(map[string]string),
+		uList:     make(map[string]string),
+		tList:     make(map[string][]string),
+	}
+}
+
+/**
+ * 添加句柄到连接池
+ */
+func (hub *connectHub) add(c common.Isocket) error {
+	hub.lock.RLock()
+	defer hub.lock.RUnlock()
+	if token, err := c.getToken(); err == nil {
+		hub.cList[token] = c
+		if user, err := c.getUser(); err == nil {
+			hub.addTau(string(user.Uid), c, "u")
+			if user.Alias != "" {
+				hub.addTau(user.Alias, c, "a")
+			}
+			for _, tag := range user.Tag {
+				hub.addTau(tag, c, "t")
+			}
+		}
+	}
+	return err
+}
+
+/**
+ * 添加连接用户标识
+ */
+func (hub *connectHub) addTau(key string, c common.Isocket, tau string) error {
+	switch tau {
+	case "t":
+		hub.tList[key] = append(hub.tList[key], c.Token)
+	case "a":
+		hub.aList[key] = c.Token
+	case "u":
+		hub.uList[key] = c.Token
+	}
+	return nil
+}
+
+/**
+ * 删除连接用户标识
+ */
+func (hub *connectHub) delTau(key string, tau string) error {
+	switch tau {
+	case "t":
+		delete(hub.tList, key)
+	case "a":
+		delete(hub.aList, key)
+	case "u":
+		delete(hub.uList, key)
+	}
+	return nil
+}
+
+/**
+ * 获得连接句柄
+ */
+func (hub *connectHub) getConnectSvr(token string) (c common.Isocket, err error) {
+	if c, ok := hub.cList[token]; ok {
+		if _, err := c.getToken(); err == nil {
+			return
+		}
+	}
+	err = errors.New(sys.LangConf.Get("2020").MustString())
+	return
+}
+
+/**
+ * 关闭连接
+ */
+func (hub *connectHub) close(token string) {
+	hub.lock.RLock()
+	defer hub.lock.RUnlock()
+	if c, ok := hub.cList[token]; ok {
+		if user, err := c.getUser(); err == nil {
+			hub.delTau(string(user.Uid), "u")
+			if user.Alias != "" {
+				hub.delTau(user.Alias, "a")
+			}
+			for _, tag := range user.Tag {
+				hub.delTau(tag, "t")
+			}
+		}
+		delete(hub.cList, token)
+		c.discon()
+	}
+}
+
+func (hub *connectHub) broadcast(message []byte) {
+	hub.broadcast <- message
+}
+
+func (hub *connectHub) run() {
+	statistics := sys.BaseConf.Get("statistics").MustInt()
+	ticker := time.NewTicker(time.Duration(statistics) * time.Second)
+	go func() {
+		for _ = range ticker.C {
+			hub.statistics()
+		}
+	}()
+}
+
+/**
+ * 连接统计
+ */
+func (hub *connectHub) statistics() {
+	fmt.Println("连接数:", len(hub.cList))
+	fmt.Println("登陆数:", len(hub.uList))
+}

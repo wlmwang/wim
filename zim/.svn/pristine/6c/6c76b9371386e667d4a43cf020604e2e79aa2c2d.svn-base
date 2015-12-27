@@ -1,0 +1,70 @@
+// Copyright 2014 G&W. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package dao
+
+import (
+	"encoding/json"
+	"errors"
+	"gaw/model"
+	"gaw/sys"
+	"time"
+)
+
+type requestDao struct {
+	database string
+	table    string
+}
+
+func NewRequestDao() *requestDao {
+	return &requestDao{"gaw", "request"}
+}
+
+func (requestDaoer *requestDao) SaveRequest(msg *model.RequestModel) (int64, error) {
+	dbmap, err := sys.GdbDrive.Database(requestDaoer.database)
+	if err == nil {
+		//插入数据
+		var message, option interface{}
+		if msg.Message != nil {
+			message, _ = json.Marshal(msg.Message)
+		}
+		if msg.Option != nil {
+			option, _ = json.Marshal(msg.Option)
+		}
+		stmt, _ := dbmap.Prepare("INSERT INTO `" + requestDaoer.table + "`(`cmd`,`sequence`,`fromuid`,`to`,`totype`,`message`,`option`,`stime`,`expired`,`timeline`) VALUES(?,?,?,?,?,?,?,?,?,?)")
+		defer stmt.Close()
+		res, _ := stmt.Exec(msg.Cmd, msg.Sequence, msg.FromUid, msg.To, msg.ToType, message, option, msg.Stime, msg.Expired, time.Now().Unix())
+		var err error
+		if msg.Id, err = res.LastInsertId(); err == nil {
+			return msg.Id, nil
+		}
+	}
+	return 0, errors.New("error!")
+}
+
+func (requestDaoer *requestDao) UpdateRequestByMsg(msg *model.MessageModel) (bool, error) {
+	dbmap, err := sys.GdbDrive.Database(requestDaoer.database)
+	if err == nil {
+		stmt, _ := dbmap.Prepare("UPDATE `" + requestDaoer.table + "` SET `to`=?,`totype`=?,`number`=1,`arrived`=1 WHERE `id`=?")
+		defer stmt.Close()
+		res, _ := stmt.Exec(msg.To, msg.ToType, msg.Rid)
+		if msg.Id, err = res.RowsAffected(); err == nil {
+			return true, nil
+		}
+	}
+	return false, errors.New("error!")
+}
+
+func (requestDaoer *requestDao) SetNumber(num int, id int64) (bool, error) {
+	dbmap, err := sys.GdbDrive.Database(requestDaoer.database)
+	if err == nil {
+		stmt, _ := dbmap.Prepare("UPDATE `" + requestDaoer.table + "` SET `number`=? WHERE `id`=?")
+		defer stmt.Close()
+		res, _ := stmt.Exec(num, id)
+		if _, err := res.RowsAffected(); err == nil {
+			return true, nil
+		}
+	}
+	return false, errors.New("error!")
+}

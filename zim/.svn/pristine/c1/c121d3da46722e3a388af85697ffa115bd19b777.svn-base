@@ -1,0 +1,47 @@
+// Copyright 2014 G&W. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package sys
+
+import (
+	"database/sql"
+	"fmt"
+	_ "github.com/go-sql-driver/mysql"
+	"sync"
+)
+
+type DbDrive struct {
+	lock     *sync.RWMutex
+	dbList   map[string]*sql.DB
+	db       *sql.DB
+	database string
+}
+
+var GdbDrive *DbDrive = &DbDrive{
+	lock:   new(sync.RWMutex),
+	dbList: make(map[string]*sql.DB),
+}
+
+/**
+ * 数据库连接
+ */
+func (dbDriver *DbDrive) Database(databaseName string) (*sql.DB, error) {
+	dbmap := dbDriver.dbList[databaseName]
+	if dbmap == nil {
+		dbDriver.lock.RLock()
+		defer dbDriver.lock.RUnlock()
+		config := Gconfig.Get("db").Get(databaseName)
+		connName := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8",
+			config.Get("user").MustString(), config.Get("pass").MustString(), config.Get("host").MustString(), config.Get("port").MustInt(), databaseName)
+		dber, err := sql.Open("mysql", connName)
+		if err == nil {
+			dbDriver.dbList[databaseName] = dber
+			dbDriver.database = databaseName
+			dbDriver.db = dber
+			return dbDriver.db, nil
+		}
+		return nil, err
+	}
+	return dbmap, nil
+}

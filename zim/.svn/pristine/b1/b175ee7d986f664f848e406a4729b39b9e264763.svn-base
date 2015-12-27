@@ -1,0 +1,55 @@
+package dao
+
+import (
+	"zim/sys"
+)
+
+type TagDao struct {
+	baseDao
+	Tid      string `json:"tid" db:"tid"`
+	Tname    string `json:"tname" db:"tname"`
+	Uid      string `json:"uid" db:"uid"`
+	timeline int64  `db:"timeline"`
+}
+
+func NewTagDao() (t *TagDao) {
+	t = &TagDao{}
+	t.SetTableName("zim_tag")
+	return
+}
+
+func (t *TagDao) GetTag(uid string) (tm []string, err error) {
+	tm = make([]string, 0)
+	sql := "SELECT `tname` FROM `" + t.GetTableName() + "` WHERE AND `uid`=" + uid
+	dbmap, err := sys.DbConn.Database()
+	if err != nil {
+		return
+	}
+	urow, err := dbmap.Query(sql)
+	defer urow.Close()
+	for urow.Next() {
+		tname := ""
+		if err = urow.Scan(&tname); err == nil {
+			tm = append(tm, tname)
+		}
+	}
+	return
+}
+
+func (t *TagDao) GetUid(tname string) (tm []string, err error) {
+	tm = make([]string, 0)
+	sql := "SELECT `uid` FROM `" + t.GetTableName() + "` WHERE AND `tname`='" + tname + "'"
+	dbmap, err := sys.DbConn.Database()
+	if err != nil {
+		return
+	}
+	urow, err := dbmap.Query(sql)
+	defer urow.Close()
+	for urow.Next() {
+		uid := ""
+		if err = urow.Scan(&uid); err == nil {
+			tm = append(tm, uid)
+		}
+	}
+	return
+}

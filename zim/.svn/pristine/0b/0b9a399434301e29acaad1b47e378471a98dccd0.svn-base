@@ -1,0 +1,13 @@
+package common
+
+import (
+	"gaw/model"
+)
+
+type Imessage interface {
+	ParseRequest(SocketProtocol, []byte) error
+	SendMessage(msg *model.MessageModel) error
+	Run()
+}
+
+var ImessageHandle Imessage

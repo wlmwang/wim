@@ -1,0 +1,186 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>Chat Example</title>
+<script src="http://libs.baidu.com/jquery/2.0.3/jquery.min.js"></script>
+
+<script type="text/javascript">
+function ab2str(buf) {
+    return String.fromCharCode.apply(null, new Uint16Array(buf));
+}
+
+function str2ab(str) {
+    var buf = new ArrayBuffer(str.length*2); // 2 bytes for each char
+    var bufView = new Uint16Array(buf);
+    for (var i=0, strLen=str.length; i<strLen; i++) {
+        bufView[i] = str.charCodeAt(i);
+    }
+    return buf;
+}
+
+$(function(){
+    var conn;
+    var seq_cli = 0;
+    var tuid = 0;
+    var msg = $("#msg");
+    var log = $("#log");
+
+    function appendLog(msg) {
+        var d = log[0]
+        var doScroll = d.scrollTop == d.scrollHeight - d.clientHeight;
+        msg.appendTo(log)
+        if (doScroll) {
+            d.scrollTop = d.scrollHeight - d.clientHeight;
+        }
+    }
+
+    function initConn(host,token){
+        if (window["WebSocket"]) {
+            conn = new WebSocket("ws://"+host+"/ns?token="+token);
+            conn.binaryType = 'arraybuffer';
+
+            conn.onopen = function(){
+                //离线消息
+                var data = {
+                    "cmd":"receive",
+                    "seq_cli":parseInt(seq_cli),
+                    "tuid":tuid.toString(),
+                }
+                var m = JSON.stringify(data);      
+                conn.send(m)
+            }
+
+            conn.onclose = function(evt) {
+                appendLog($("<div><b>Connection closed.</b></div>"))
+            }
+
+            conn.onmessage = function(evt) {
+                if (evt.data instanceof ArrayBuffer) {
+                    var dd = ab2str(evt.data);
+                    console.log(dd);
+                } else {
+                    console.log(evt.data);
+                    if (evt.data=="") {
+                        return 
+                    }
+
+                    var msg = JSON.parse(evt.data);
+                    switch (msg.cmd){
+                        case "push": //step4 receive push tip from Push Server                          
+                            var data = {
+                                "cmd":"receive",
+                                "seq_cli":parseInt(seq_cli),
+                                "fuid":msg.fuid,
+                                "fname":msg.fname,
+                                "to":msg.to,
+                                "tuid":msg.tuid,
+                            }
+                            var m = JSON.stringify(data);      
+                            conn.send(m);
+                            break;
+                        case "message": //step5 receive message from Receive Server
+                            seq_cli = msg.seq_cli
+                            for(var i=0 ;i<msg.message.length;i++)
+                            {
+                                var time = new Date(parseInt(msg.message[i].stime) * 1000);
+                                var timeStr = time.toLocaleTimeString();
+                                appendLog($("<div/>").text(msg.message[i].message.content + "\t"+timeStr))
+                            }
+                    }
+                }
+            }
+        } else {
+            appendLog($("<div><b>Your browser does not support WebSockets.</b></div>"))
+        }
+    }
+
+    $("#login").click(function(){ //step1 login on Login Server
+        if ($("#username").val()!="" && $("#password").val()!="") {
+            $.post("http://{{$}}/ls?act=login",{"username":$("#username").val(),"password":$("#password").val(),"appid":"1001"},function(data,ext){
+                if(data) {
+                    appendLog($("<div/>").text("登陆成功！"))
+                    var parsedJson = $.parseJSON(data); 
+                    seq_cli = parsedJson.user.seq_cli
+                    tuid = parsedJson.user.uid
+
+                    console.info(parsedJson)
+                    //step2 connection to Notification Server
+                    initConn(parsedJson.svr_ip+":"+parsedJson.svr_port,parsedJson.token)
+                }
+            });
+        }
+    })
+
+    $("#send").click(function() {
+        if (!conn) {
+            return false;
+        }
+        if (msg.val() == "") {
+            return false;
+        }
+        //step3 send message at Notification Server
+        var data = {
+            cmd: "send",
+            to:"u/"+$("#to").val(),
+            stime:1111111,
+            message:{
+                "content":msg.val()
+            }
+        };
+        var m = JSON.stringify(data);      
+        conn.send(m);
+        return false
+    });
+
+});
+</script>
+<style type="text/css">
+html {
+    overflow: hidden;
+}
+
+body {
+    overflow: hidden;
+    padding: 0;
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    background: gray;
+}
+
+#log {
+    background: white;
+    margin: 0;
+    padding: 0.5em 0.5em 0.5em 0.5em;
+    position: absolute;
+    top: 0.5em;
+    left: 0.5em;
+    right: 0.5em;
+    bottom: 3em;
+    overflow: auto;
+}
+
+#form {
+    padding: 0 0.5em 0 0.5em;
+    margin: 0;
+    position: absolute;
+    bottom: 1em;
+    left: 0px;
+    width: 100%;
+    overflow: hidden;
+}
+</style>
+</head>
+<body>
+<div id="log"></div>
+<form id="form">
+    <input type="button" id="send" value="Send" />
+    <input type="text" id="to" size="8"/>:
+    <input type="text" id="msg" size="64"/>
+
+    <input type="button" id="login" value="Login" />
+    <input type="text" id="username" size="20"/>
+    <input type="text" id="password" size="20"/>
+</form>
+</body>
+</html>

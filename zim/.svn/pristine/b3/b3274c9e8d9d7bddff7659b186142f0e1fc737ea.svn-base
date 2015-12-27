@@ -1,0 +1,75 @@
+package sys
+
+import (
+	"database/sql"
+	"fmt"
+	_ "github.com/go-sql-driver/mysql"
+	"sync"
+	"time"
+)
+
+const (
+	period = 300
+)
+
+type dbDriver struct {
+	timeline int64
+	token    string
+	*sql.DB
+}
+
+type dbHub struct {
+	lock  *sync.RWMutex
+	dList map[string]*dbDriver
+}
+
+var DbHub *dbHub
+
+func NewDbHub() (m *dbHub) {
+	m = &dbHub{
+		lock:  new(sync.RWMutex),
+		dList: make(map[string]*dbDriver),
+	}
+	return
+}
+
+/**
+ * 数据库连接
+ */
+func (m *dbHub) Database(token, ms string) (*dbDriver, error) {
+	dbmap := m.dList[token]
+	if dbmap == nil {
+		m.lock.RLock()
+		defer m.lock.RUnlock()
+		config := BaseConf.Get("db").Get(ms)
+		connName := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8", config.Get("user").MustString(), config.Get("pass").MustString(), config.Get("host").MustString(), config.Get("port").MustInt(), config.Get("dbn").MustString())
+		dbr, err := sql.Open("mysql", connName)
+		if err == nil {
+			db := &dbDriver{time.Now().Unix(), token, dbr}
+			m.dList[token] = db
+			return db, nil
+		}
+		return nil, err
+	}
+	dbmap.timeline = time.Now().Unix()
+	return dbmap, nil
+}
+
+func (hub *dbHub) Run() {
+	ticker := time.NewTicker(period * time.Second)
+	defer func() {
+		ticker.Stop()
+	}()
+	for {
+		select {
+		case <-ticker.C:
+			for _, d := range hub.dList {
+				if d != nil {
+					if time.Now().Unix()-d.timeline > period {
+						d.Close()
+					}
+				}
+			}
+		}
+	}
+}

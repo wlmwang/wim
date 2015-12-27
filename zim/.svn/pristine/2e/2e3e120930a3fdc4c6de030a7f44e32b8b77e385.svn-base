@@ -1,0 +1,22 @@
+package dao
+
+type baseDao struct {
+	tableName string
+	sessionid string
+}
+
+func (b *baseDao) SetTableName(tableName string) {
+	b.tableName = tableName
+}
+
+func (b *baseDao) GetTableName() string {
+	return b.tableName
+}
+
+func (b *baseDao) SetSessionid(sessionid string) {
+	b.sessionid = sessionid
+}
+
+func (b *baseDao) GetSessionid() string {
+	return b.sessionid
+}

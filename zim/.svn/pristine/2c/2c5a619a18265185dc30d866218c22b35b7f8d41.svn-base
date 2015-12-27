@@ -1,0 +1,142 @@
+package main
+
+import (
+	"fmt"
+	"net/http"
+	"net/rpc"
+	"strconv"
+	"text/template"
+	"zim/common"
+	"zim/service"
+	"zim/sys"
+)
+
+func init() {
+	common.LogSvr = common.GetLogger()                  //日志handle
+	sys.BaseConf = sys.NewConfig("config/config.json")  //基础配置
+	sys.LangConf = sys.NewConfig("config/lang_zh.json") //语言配置
+
+	service.LoginSvr = service.NewLoginSvr()     //登陆handle
+	service.SendSrv = service.NewSendSrv()       //发送handle
+	service.ReceiveSvr = service.NewReceiveSvr() //接受handle
+	service.UserSvr = service.NewUserSvr()       //用户管理handle
+	service.ConnectHub = service.NewConnectHub() //ws连接池
+
+	sys.DbConn = sys.NewDbConn()
+	sys.RedisPool = sys.NewRedisPool() //redis连接池
+	sys.RpcPool = sys.NewRpcPool()     //rpc连接池
+}
+
+//step1
+//GET /ls?act=login&appid=<>&username=<>&password=<> HTTP/1.1
+//GET /ls?act=islogin&token=<> HTTP/1.1
+func serverLoginSvr(w http.ResponseWriter, r *http.Request) {
+	if host, code := service.LoginSvr.LoginSvrHandle(w, r); code == 0 {
+		w.Write([]byte(host))
+	} else {
+		http.Error(w, sys.LangConf.Get(string(code)).MustString(), code)
+	}
+}
+
+//step2
+//GET /ns?token=12345678909876543210 ws/1
+func serverNotificationSvr(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("login")
+	if r.Method != "GET" {
+		common.LogSvr.Println("info:" + sys.LangConf.Get("4005").MustString())
+		return
+	}
+	if r.FormValue("token") == "" {
+		common.LogSvr.Println("info:" + sys.LangConf.Get("4006").MustString())
+		return
+	}
+	connectSvr := service.NewConnectSvr()
+	code, err := connectSvr.Connect(w, r)
+	if code == 0 && err == nil {
+		connectSvr.Reader()
+	} else {
+		common.LogSvr.Println("info:" + sys.LangConf.Get(strconv.Itoa(code)).MustString())
+		http.Error(w, sys.LangConf.Get(strconv.Itoa(code)).MustString(), code)
+		return
+	}
+}
+
+//GET /us?act=getfriend&uid=<>&appid=<>&token=<> HTTP/1.1
+//GET /us?act=getgroup&uid=<>&appid=<>&token=<> HTTP/1.1
+//GET /us?act=islogin&token=<> HTTP/1.1
+func serverUserSvr(w http.ResponseWriter, r *http.Request) {
+	if !common.ApiKeyCheck(r.FormValue("key"), sys.BaseConf.Get("api").Get("key").MustString(), sys.BaseConf.Get("api").Get("timeSlice").MustInt()) {
+		http.Error(w, sys.LangConf.Get("4009").MustString(), 4009)
+		return
+	}
+	if host, code := service.UserSvr.UserSvrHandle(w, r); code == 0 {
+		w.Write([]byte(host))
+	} else {
+		http.Error(w, sys.LangConf.Get(strconv.Itoa(code)).MustString(), code)
+	}
+}
+
+//GET /fs?act=upload&token=<>&appid=<>&sort=<>&content=<>&name=<> HTTP/1.1
+//GET /fs?act=get&token=<>&path=<upload/2015-05/462a8acb4322aab29356e7534c0543ca> HTTP/1.1
+func serverFileSvr(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		common.LogSvr.Println("info:" + sys.LangConf.Get("4005").MustString())
+		http.Error(w, sys.LangConf.Get("4005").MustString(), 4005)
+		return
+	}
+	if host, code := service.FileSvr.FileSvrHandle(w, r); code == 0 {
+		w.Write([]byte(host))
+	} else {
+		http.Error(w, sys.LangConf.Get(strconv.Itoa(code)).MustString(), code)
+	}
+}
+
+func serverWebChatSvr(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/wc" {
+		common.LogSvr.Println("info: " + sys.LangConf.Get("4004").MustString())
+		http.Error(w, sys.LangConf.Get("4004").MustString(), 4004)
+		return
+	}
+	if r.Method != "GET" {
+		common.LogSvr.Println("info: " + sys.LangConf.Get("4005").MustString())
+		http.Error(w, sys.LangConf.Get("4005").MustString(), 4005)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	tpl := make(map[string]*template.Template)
+	tpl["home"] = template.Must(template.ParseFiles("template/webchat.html"))
+	tpl["home"].Execute(w, r.Host)
+}
+
+func serverDispatchSvr(w http.ResponseWriter, r *http.Request) {
+
+}
+
+func serverSwitchboardSvr(w http.ResponseWriter, r *http.Request) {
+
+}
+
+func main() {
+	go service.ConnectHub.Run()
+	go service.SendSrv.Run()
+	go service.ReceiveSvr.Run()
+	http.HandleFunc("/ls", serverLoginSvr)        //HTTP Login Server
+	http.HandleFunc("/ns", serverNotificationSvr) //WS Notification Server
+	http.HandleFunc("/fs", serverFileSvr)         //HTTP File Server
+	http.HandleFunc("/us", serverUserSvr)         //HTTP User Server
+
+	http.HandleFunc("/wc", serverWebChatSvr)     //HTTP+WebSocket WebChat Server
+	http.HandleFunc("/ds", serverDispatchSvr)    //HTTP Dispatch Server
+	http.HandleFunc("/sb", serverSwitchboardSvr) //WebSocket Switchboard Server
+
+	rpcSvr := service.NewRpcSvr()
+	rpc.Register(rpcSvr)
+	rpc.HandleHTTP()
+
+	mode := sys.BaseConf.Get("mode").MustString()
+	addr := sys.BaseConf.Get(mode[:2]).Get(mode[2:]).Get("ip").MustString() + ":" + sys.BaseConf.Get(mode[:2]).Get(mode[2:]).Get("port").MustString()
+	err := http.ListenAndServe(addr, nil)
+	if err != nil {
+		common.LogSvr.Fatal("fatal:ListenAndServe(" + err.Error() + ")")
+	}
+}

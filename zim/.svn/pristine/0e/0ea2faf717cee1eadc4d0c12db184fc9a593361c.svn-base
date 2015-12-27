@@ -1,0 +1,24 @@
+// Copyright 2014 G&W. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package model
+
+type UserModel struct {
+	Appid    int      `json:"appid"  db:"appid"`       //用户服务器
+	Uid      string   `json:"uid" db:"uid"`            //用户id
+	Username string   `json:"username"  db:"username"` //用户名
+	Nickname string   `json:"nickname"  db:"nickname"` //昵称
+	Sex      string   `json:"sex"  db:"sex"`           //性别
+	Password string   `json:"password"  db:"password"` //密码
+	Disabled int      `json:"disabled"  db:"disabled"` //是否禁用
+	Alias    string   `json:"alias"  db:"alias"`       //用户标识符
+	Tag      []string `json:"tag"  db:"tag"`           //用户分组
+	//Salt     string   `json:"salt"  db:"salt"`         //密码私钥
+}
+
+func NewUserModel() *UserModel {
+	return &UserModel{
+		Tag: make([]string, 0),
+	}
+}

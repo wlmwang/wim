@@ -1,0 +1,87 @@
+package main
+
+import (
+	"net/http"
+	"zim/common"
+	"zim/dao"
+	"zim/sys"
+)
+
+func init() {
+	common.LogSvr = common.GetLogger()
+	sys.BaseConf = sys.NewConfig("config/config.json")  //基础配置
+	sys.LangConf = sys.NewConfig("config/lang_zh.json") //语言配置
+	service.ConnectHub = sys.NewConnectHub()
+}
+
+func serverLoginSvr(w http.ResponseWriter, r *http.Request) {
+	act := r.FormValue("act")
+	switch act {
+	case "register":
+
+		fallthrough
+	case "login":
+		appid := r.FormValue("appid")
+		username := r.FormValue("username")
+		password := r.FormValue("password")
+		userDao := dao.NewUserDao()
+		if err := userDao.Login(username, password, appid); userDao.Uid != "" {
+			http.Error(w, sys.LangConf.Get("2004").MustString(), 2004)
+			return
+		}
+		token := common.RandomStr(32)
+		//insert token into memcache
+	case "islogin":
+
+	default:
+
+	}
+
+	host := `{"schema":"http","ip":"` + sys.BaseConf.Get("ds").Get("d1").Get("ip").MustString() + `","port":"` + sys.BaseConf.Get("ds").Get("d1").Get("port").MustString() + `","token":` + token + `}`
+	w.Write([]byte(host))
+}
+
+func serverDispatchSvr(w http.ResponseWriter, r *http.Request) {
+	host := `{"schema":"ws","ip":"` + sys.BaseConf.Get("ns").Get("n1").Get("ip").MustString() + `","port":"` + sys.BaseConf.Get("ns").Get("n1").Get("port").MustString() + `"}`
+	w.Write([]byte(host))
+}
+
+func serverNotificationSvr(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		common.LogSvr.Fatal("fatal:" + sys.LangConf.Get("4005").MustString())
+		http.Error(w, sys.LangConf.Get("4005").MustString(), 4005)
+		return
+	}
+	if r.FormValue("token") == "" {
+		common.LogSvr.Fatal("fatal:" + sys.LangConf.Get("4006").MustString())
+		http.Error(w, sys.LangConf.Get("4006").MustString(), 4006)
+		return
+	}
+	var connectSvr protocol.Isocket
+	connectSvr = service.NewConnectSvr()
+	code, err := connectSvr.Connect(w, r)
+	if code == 0 {
+		connectSvr.reader()
+	} else {
+		common.LogSvr.Fatal("fatal: " + err.Error())
+		http.Error(w, err.Error(), code)
+		return
+	}
+}
+
+func serverSwitchboardSvr(w http.ResponseWriter, r *http.Request) {
+
+}
+
+func main() {
+	http.HandleFunc("/ls", serverLoginSvr)        //Login Server
+	http.HandleFunc("/ds", serverDispatchSvr)     //Dispatch Server
+	http.HandleFunc("/ns", serverNotificationSvr) //Notification Server
+	http.HandleFunc("/sb", serverSwitchboardSvr)  //Switchboard Server
+
+	addr := sys.BaseConf.Get("base").Get("ip").MustString() + ":" + sys.BaseConf.Get("base").Get("port").MustString()
+	err := http.ListenAndServe(addr, nil)
+	if err != nil {
+		common.LogSvr.Fatal("fatal:ListenAndServe(" + err.Error() + ")")
+	}
+}

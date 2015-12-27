@@ -1,0 +1,49 @@
+package sys
+
+import (
+	"database/sql"
+	"fmt"
+	_ "github.com/go-sql-driver/mysql"
+	"sync"
+)
+
+type dbHub struct {
+	lock     *sync.RWMutex
+	dbList   map[string]*sql.DB
+	db       *sql.DB
+	database string
+}
+
+var DbHub *dbHub
+var DbMaster *sql.DB
+var DbSlave *sql.DB
+
+func NewDbHub() (m *dbHub) {
+	m = &dbHub{
+		lock:   new(sync.RWMutex),
+		dbList: make(map[string]*sql.DB),
+	}
+	return
+}
+
+/**
+ * 数据库连接
+ */
+func (m *dbHub) Database(d string) (*sql.DB, error) {
+	dbmap := m.dbList[d]
+	if dbmap == nil {
+		m.lock.RLock()
+		defer m.lock.RUnlock()
+		config := BaseConf.Get("db").Get(d)
+		connName := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8", config.Get("user").MustString(), config.Get("pass").MustString(), config.Get("host").MustString(), config.Get("port").MustInt(), config.Get("dbn").MustString())
+		dbr, err := sql.Open("mysql", connName)
+		if err == nil {
+			m.dbList[d] = dbr
+			m.database = config.Get("dbn").MustString()
+			m.db = dbr
+			return m.db, nil
+		}
+		return nil, err
+	}
+	return dbmap, nil
+}

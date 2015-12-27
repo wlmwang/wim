@@ -1,0 +1,210 @@
+// Copyright 2014 G&W. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package sys
+
+import (
+	"errors"
+	"fmt"
+	"gaw/protocol"
+	"sync"
+	"time"
+)
+
+const (
+	pingPeriod = 10
+)
+
+/**
+ * 连接池
+ */
+type ConnPool struct {
+	lock      *sync.RWMutex                        //锁
+	ticker    *time.Ticker                         //定时器（超时）
+	Broadcast chan []byte                          //广播消息
+	ConnCache chan protocol.SocketProtocol         //连接通道缓存cache
+	ConnList  map[string]protocol.SocketProtocol   //conn句柄列表
+	TagList   map[string][]protocol.SocketProtocol //tag(n:n)用户connId(无逆向推导，与1:n相同数据结构)
+	AliasList map[string][]protocol.SocketProtocol //alias(1:n)用户connId
+	UidList   map[string][]protocol.SocketProtocol //uid(1:n)用户connId
+}
+
+//客户端连接池
+var GconnPool = ConnPool{
+	lock:      new(sync.RWMutex),
+	ConnCache: make(chan protocol.SocketProtocol),
+	Broadcast: make(chan []byte),
+	ConnList:  make(map[string]protocol.SocketProtocol),
+	TagList:   make(map[string][]protocol.SocketProtocol),
+	AliasList: make(map[string][]protocol.SocketProtocol),
+	UidList:   make(map[string][]protocol.SocketProtocol),
+}
+
+/**
+ * 添加句柄到连接池
+ */
+func (connPooler *ConnPool) add(conn protocol.SocketProtocol) error {
+	connPooler.lock.RLock()
+	defer connPooler.lock.RUnlock()
+	var err error
+	if connId, err := conn.GetConnId(); err == nil {
+		connPooler.ConnList[connId] = conn
+		//添加用户标识
+		if userInfo, err := conn.GetUser(); err == nil {
+			connPooler.AddTau(string(userInfo.Uid), conn, "u")
+			if userInfo.Alias != "" {
+				connPooler.AddTau(userInfo.Alias, conn, "a")
+			}
+			for _, tag := range userInfo.Tag {
+				connPooler.AddTau(tag, conn, "t")
+			}
+		}
+	}
+	return err
+}
+
+/**
+ * 添加连接用户标识
+ */
+func (connPooler *ConnPool) AddTau(key string, conn protocol.SocketProtocol, tau string) error {
+	switch tau {
+	case "t":
+		connPooler.TagList[key] = append(connPooler.TagList[key], conn)
+	case "a":
+		connPooler.AliasList[key] = append(connPooler.AliasList[key], conn)
+	case "u":
+		connPooler.UidList[key] = append(connPooler.UidList[key], conn)
+	}
+	return nil
+}
+
+/**
+ * 删除连接用户标识
+ */
+func (connPooler *ConnPool) DelTau(key string, tau string) error {
+	switch tau {
+	case "t":
+		delete(connPooler.TagList, key)
+	case "a":
+		delete(connPooler.AliasList, key)
+		//TODO ###BUG###
+	case "u":
+		delete(connPooler.UidList, key)
+	}
+	return nil
+}
+
+func (connPooler *ConnPool) GetConnSliceByTau(key string, tau string) ([]protocol.SocketProtocol, error) {
+	switch tau {
+	case "t":
+		if connSlice, ok := connPooler.TagList[key]; ok {
+			return connSlice, nil
+		}
+	case "a":
+		if connSlice, ok := connPooler.AliasList[key]; ok {
+			return connSlice, nil
+		}
+	case "u":
+		if connSlice, ok := connPooler.UidList[key]; ok {
+			return connSlice, nil
+		}
+	}
+	return nil, errors.New("连接已失效")
+}
+
+/**
+ * 获得连接句柄
+ */
+func (connPooler *ConnPool) GetConn(connId string) (protocol.SocketProtocol, error) {
+	if conn, ok := connPooler.ConnList[connId]; ok {
+		if _, err := conn.GetConnId(); err == nil {
+			return conn, nil
+		}
+	}
+	return nil, errors.New("连接已失效")
+}
+
+/**
+ * 关闭连接
+ */
+func (connPooler *ConnPool) Close(connId string) {
+	connPooler.lock.RLock()
+	defer connPooler.lock.RUnlock()
+	if conn, ok := connPooler.ConnList[connId]; ok {
+		//删除用户标识
+		if userInfo, err := conn.GetUser(); err == nil {
+			connPooler.DelTau(string(userInfo.Uid), "u")
+			if userInfo.Alias != "" {
+				connPooler.DelTau(userInfo.Alias, "a")
+			}
+			for _, tag := range userInfo.Tag {
+				connPooler.DelTau(tag, "t")
+			}
+		}
+		delete(connPooler.ConnList, connId)
+		conn.DisConnect()
+	}
+}
+
+/**
+ * 广播消息
+ * 由ConnPooler.run读取发送至所有客户端
+ */
+func (connPooler *ConnPool) SendAll(message []byte) {
+	connPooler.Broadcast <- message
+}
+
+/**
+ * 连接池守护进程
+ * 连接、断开、广播消息
+ * goroutine
+ */
+func (connPooler *ConnPool) Run() {
+	connPooler.RunStatistics()
+	connPooler.ticker = time.NewTicker(10 * time.Second)
+	defer func() {
+		connPooler.ticker.Stop()
+	}()
+	for {
+		select {
+		//从http监听函数读取channel
+		case conn := <-connPooler.ConnCache:
+			connPooler.add(conn)
+		//心跳
+		case <-connPooler.ticker.C:
+			for connId, conn := range connPooler.ConnList {
+				if conn != nil {
+					if connid, err := conn.GetConnId(); err == nil {
+						if err := conn.PingMessage(); err != nil {
+							connPooler.Close(connid)
+						}
+					} else {
+						connPooler.Close(connId)
+					}
+				}
+			}
+		}
+	}
+}
+
+/**
+ * 连接统计
+ */
+func (connPooler *ConnPool) RunStatistics() {
+	num := Gconfig.Get("StatisticsTime").MustInt()
+	ticker := time.NewTicker(time.Duration(num) * time.Second)
+	go func() {
+		for _ = range ticker.C {
+			connPooler.statistics()
+		}
+	}()
+}
+
+/**
+ * 连接统计
+ */
+func (connPooler *ConnPool) statistics() {
+	fmt.Println("连接数:", len(connPooler.ConnList))
+	fmt.Println("登陆数:", len(connPooler.AliasList))
+}

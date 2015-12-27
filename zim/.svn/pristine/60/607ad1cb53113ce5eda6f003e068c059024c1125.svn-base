@@ -1,0 +1,111 @@
+// Copyright 2014 G&W. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package main
+
+import (
+	"flag"
+	"gaw/dao"
+	"gaw/lib"
+	"gaw/protocol"
+	"gaw/sys"
+	"log"
+	"net/http"
+	"text/template"
+)
+
+var addr = flag.String("addr", ":9264", "http service address")
+var configPath = flag.String("config", "config.json", "config file")
+var tpl map[string]*template.Template
+
+func init() {
+	sys.Gconfig = sys.NewConfig(*configPath)        //配置处理器
+	protocol.GmessageProtocol = lib.NewGawMessage() //消息处理器
+	sys.GsendQueue = sys.NewSendQueue("sendqueue")  //发送处理器
+	dao.GallUser = dao.NewAllUser()                 //所有会员
+
+	var codePath = sys.Gconfig.Get("base").Get("root").MustString() + "/static/language/zh_cn/code.json"
+	sys.Gcode = sys.NewCode(codePath)
+
+	var langPath = sys.Gconfig.Get("base").Get("root").MustString() + "/static/language/zh_cn/lang.json"
+	sys.Glang = sys.NewLang(langPath)
+
+	tpl = make(map[string]*template.Template)
+	tpl["home"] = template.Must(template.ParseFiles(sys.Gconfig.Get("base").Get("root").MustString() + "/template/webchat.html"))
+	tpl["statistics"] = template.Must(template.ParseFiles(sys.Gconfig.Get("base").Get("root").MustString() + "/template/statistics.html"))
+}
+
+/**
+ * simple webchat test
+ */
+func serverWeb(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.Error(w, sys.Gcode.Get("4004").MustString(), 4004)
+		return
+	}
+	if r.Method != "GET" {
+		http.Error(w, sys.Gcode.Get("4005").MustString(), 4005)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	tpl["home"].Execute(w, r.Host)
+}
+
+/**
+ * statistics
+ */
+func statistics(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.Error(w, sys.Gcode.Get("4004").MustString(), 4004)
+		return
+	}
+	if r.Method != "GET" {
+		http.Error(w, sys.Gcode.Get("4005").MustString(), 4005)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	tpl["statistics"].Execute(w, sys.GconnPool)
+}
+
+/**
+ * serverWs handles webocket requests from the peer.
+ * http监听函数(main入口)
+ */
+func serverSocket(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, sys.Gcode.Get("4005").MustString(), 4005)
+		return
+	}
+	var GsocketProtocol protocol.SocketProtocol
+	GsocketProtocol = lib.NewGawSocket()
+	code, err := GsocketProtocol.Connect(w, r)
+	if code == 0 {
+		GsocketProtocol.MessageHandle() //socket消息处理器
+	} else {
+		log.Println(err)
+		http.Error(w, err.Error(), code)
+		return
+	}
+}
+
+func main() {
+	flag.Parse()
+	go dao.GallUser.Run()
+	go sys.GconnPool.Run()
+	go protocol.GmessageProtocol.Run()
+	go sys.GsendQueue.Run()
+
+	defer func() {
+		//service.ChatServicer.Exit()
+	}()
+	if sys.Gconfig.Get("IS_TEST").MustBool() {
+		http.HandleFunc("/", serverWeb)
+	}
+	http.HandleFunc("/ws", serverSocket)
+	http.HandleFunc("/statistics", statistics)
+	err := http.ListenAndServe(*addr, nil)
+	if err != nil {
+		log.Fatal("ListenAndServe: ", err)
+	}
+}

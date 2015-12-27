@@ -1,0 +1,113 @@
+// Copyright 2014 G&W. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package dao
+
+import (
+	"encoding/json"
+	"errors"
+	"gaw/model"
+	"gaw/sys"
+	"strconv"
+	"time"
+)
+
+type messageDao struct {
+	database string
+	table    string
+	sucTable string
+	errTable string
+	resTable string
+}
+
+func NewMessageDao() *messageDao {
+	return &messageDao{"gaw", "message", "sucmsg", "errmsg", "request"}
+}
+
+func (messageDaoer *messageDao) SaveMessage(msg *model.MessageModel) (int64, error) {
+	dbmap, err := sys.GdbDrive.Database(messageDaoer.database)
+	if err == nil {
+		//插入数据
+		var message, option interface{}
+		if msg.Message != nil {
+			message, _ = json.Marshal(msg.Message)
+		}
+		if msg.Option != nil {
+			option, _ = json.Marshal(msg.Option)
+		}
+		stmt, _ := dbmap.Prepare("INSERT INTO `" + messageDaoer.table + "` (`cmd`,`rid`,`sequence`,`fromuid`,`fromconnid`,`to`,`totype`,`touid`,`toconnid`,`message`,`option`,`stime`,`expired`,`timeline`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+		defer stmt.Close()
+		res, _ := stmt.Exec(msg.Cmd, msg.Rid, msg.Sequence, msg.FromUid, msg.FromConnId, msg.To, msg.ToType, msg.ToUid, msg.ToConnId, message, option, msg.Stime, msg.Expired, time.Now().Unix())
+		var err error
+		if msg.Id, err = res.LastInsertId(); err == nil {
+			return msg.Id, nil
+		}
+	}
+	return 0, errors.New("error!")
+}
+
+func (messageDaoer *messageDao) Arrived(msg *model.MessageModel) (*model.MessageModel, error) {
+	dbmap, err := sys.GdbDrive.Database(messageDaoer.database)
+	if err == nil && msg.Id > 0 {
+		sql := "SELECT `id`,`rid`,`sequence`,`cmd`,`fromuid`,`fromconnid`,`to`,`totype`,`touid`,`message`,`option`,`stime`,`expired` FROM `" + messageDaoer.table + "` WHERE `id`= " + strconv.Itoa(int(msg.Id))
+		urow, err := dbmap.Query(sql)
+		if err == nil {
+			var message, option string
+			messageModel := model.NewMessageModel()
+			urow.Next()
+			err = urow.Scan(&messageModel.Id, &messageModel.Rid, &messageModel.Sequence, &messageModel.Cmd, &messageModel.FromUid, &messageModel.FromConnId, &messageModel.To, &messageModel.ToType, &messageModel.ToUid, message, option, &messageModel.Stime, &messageModel.Expired)
+			if message != "" {
+				json.Unmarshal([]byte(message), &messageModel.Message)
+			}
+			if option != "" {
+				json.Unmarshal([]byte(option), &messageModel.Option)
+			}
+			//sucmsg table
+			suctmt, _ := dbmap.Prepare("INSERT INTO `" + messageDaoer.sucTable + "`(`id`,`rid`,`cmd`,`sequence`,`fromuid`,`to`,`totype`,`touid`,`message`,`option`,`stime`,`expired`,`timeline`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
+			defer suctmt.Close()
+			suctmt.Exec(messageModel.Id, messageModel.Rid, messageModel.Cmd, messageModel.Sequence, messageModel.FromUid, messageModel.To, messageModel.ToType, messageModel.ToUid, message, option, messageModel.Stime, messageModel.Expired, time.Now().Unix())
+
+			//delete message
+			msgstmt, _ := dbmap.Prepare("DELETE FROM `" + messageDaoer.table + "` WHERE `id`=?")
+			defer msgstmt.Close()
+			msgstmt.Exec(messageModel.Id)
+
+			//add request arrived
+			resstmt, _ := dbmap.Prepare("UPDATE `" + messageDaoer.resTable + "` SET `arrived`=`arrived`+1 WHERE `id`=?")
+			defer resstmt.Close()
+			resstmt.Exec(messageModel.Rid)
+			return messageModel, nil
+		}
+	}
+	return nil, errors.New("error!")
+}
+
+func (messageDaoer *messageDao) OfflineMessage(userInfo *model.UserModel) ([]model.MessageModel, error) {
+	offlineMsg := make([]model.MessageModel, 0)
+	dbmap, err := sys.GdbDrive.Database(messageDaoer.database)
+	if err == nil {
+		sql := "SELECT `id`,`cmd`,`fromuid`,`to`,`totype`,`touid`,`message`,`option`,`stime`,`expired` FROM `" + messageDaoer.table + "` WHERE `touid`='" + "u/" + userInfo.Uid + "'"
+		urow, err := dbmap.Query(sql)
+		if err == nil {
+			for urow.Next() {
+				msg := model.NewMessageModel()
+				var message, option string
+				if err := urow.Scan(&msg.Id, &msg.Cmd, &msg.FromUid, &msg.To, &msg.ToType, &msg.ToUid, &message, &option, &msg.Stime, &msg.Expired); err == nil {
+					if msg.Stime+int64(msg.Expired) < time.Now().Unix() {
+						continue
+					}
+					if message != "" {
+						json.Unmarshal([]byte(message), &msg.Message)
+					}
+					if option != "" {
+						json.Unmarshal([]byte(option), &msg.Option)
+					}
+					offlineMsg = append(offlineMsg, *msg)
+				}
+			}
+			return offlineMsg, nil
+		}
+	}
+	return nil, errors.New("error!")
+}

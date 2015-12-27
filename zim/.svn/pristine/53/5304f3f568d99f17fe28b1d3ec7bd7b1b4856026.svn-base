@@ -1,0 +1,41 @@
+package dao
+
+import (
+	//"fmt"
+	//"strconv"
+	"time"
+	"zim/sys"
+)
+
+type fileDao struct {
+	baseDao
+	id       int64
+	Path     string //地址
+	Sort     string //分类
+	Appid    string
+	uid      string
+	timeline int64
+}
+
+func NewFileDao(sessionid string) (f *fileDao) {
+	f = &fileDao{}
+	f.SetTableName("zim_file")
+	f.SetSessionid(sessionid)
+	return
+}
+
+func (f *fileDao) Save(sort, filepath, uid, appid string) (id int64, err error) {
+	//插入数据
+	f.Path, f.Sort, f.uid, f.Appid = filepath, sort, uid, appid
+	dbmap, err := sys.DbHub.Database(f.sessionid, "master")
+	if err != nil {
+		return
+	}
+	stmt, err := dbmap.Prepare("INSERT INTO `" + f.GetTableName() + "`(`path`,`sort`,`uid`,`appid`,`timeline`) VALUES(?,?,?,?,?)")
+	defer stmt.Close()
+	res, _ := stmt.Exec(filepath, sort, uid, appid, time.Now().Unix())
+	if f.id, err = res.LastInsertId(); err == nil {
+		id = f.id
+	}
+	return
+}

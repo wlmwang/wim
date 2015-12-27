@@ -1,0 +1,44 @@
+package service
+
+import (
+	"encoding/json"
+	//"fmt"
+	"zim/common"
+	"zim/dao"
+	"zim/sys"
+)
+
+type receiveSvr struct {
+}
+
+func NewReceiveSvr() *receiveSvr {
+	return &receiveSvr{}
+}
+
+/**
+ * 获取消息处理器
+ * websocket
+ */
+func (r *receiveSvr) handle(req *dao.RequestDao) (err error) {
+	//defer common.HandleError()
+	if req.Tuid != "" {
+		if c, err := ConnectHub.getConnectSvr("u/" + req.Tuid); err == nil {
+			t, _ := c.getToken()
+			rd := dao.NewReceiveDao(t)
+			rd.Get(req)
+			if len(rd.Message) > 0 {
+				if message, err := json.Marshal(rd); err == nil {
+					c.sendText(message)
+				}
+			} else {
+				c.sendText([]byte{})
+			}
+		} else {
+			common.LogSvr.Println("info:" + err.Error())
+		}
+	} else {
+		common.LogSvr.Println("info: "+sys.LangConf.Get("4000").MustString(), err)
+		return
+	}
+	return
+}

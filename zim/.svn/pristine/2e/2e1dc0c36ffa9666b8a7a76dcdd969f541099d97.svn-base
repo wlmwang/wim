@@ -1,0 +1,70 @@
+package dao
+
+import (
+	"encoding/json"
+	//"fmt"
+	"time"
+	"zim/sys"
+)
+
+type SendDao struct {
+	baseDao
+	mid     int64  `db:"mid"`                    //mid
+	rid     int64  `db:"rid"`                    //rid
+	Seq     int64  `json:"seq" db:"seq"`         //seq_svr
+	Cmd     string `json:"cmd" db:"cmd"`         //action
+	Fuid    string `json:"fuid" db:"fuid"`       //Sender Uid
+	Fname   string `json:"fname" db:"fname"`     //Sender Uid
+	To      string `json:"to" db:"to"`           //Receiver标签（Uid、Alias、Tag）
+	Tuid    string `json:"tuid" db:"tuid"`       //tuid
+	Expired int    `json:"expired" db:"expired"` //消息有效期，单位秒。默认86400
+
+	Stime   int64             `json:"stime" db:"stime"`     //Server发送时间（由Gaw系统赋值）
+	Message map[string]string `json:"message" db:"message"` //消息
+	Option  map[string]string `json:"option" db:"option"`   //附加信息
+}
+
+func NewSendDao() (s *SendDao) {
+	s = &SendDao{
+		Message: make(map[string]string),
+		Option:  make(map[string]string),
+	}
+	s.SetTableName("zim_msgstore")
+	return
+}
+
+func (s *SendDao) Assert(req *RequestDao) (err error) {
+	s.rid, s.Cmd, s.Fuid, s.Fname, s.To, s.Expired, s.Message, s.Option, s.Stime = req.rid, req.Cmd, req.Fuid, req.Fname, req.To, req.Expired, req.Message, req.Option, time.Now().Unix()
+	return err
+}
+
+func (s *SendDao) SetTuid(tuid string) (err error) {
+	s.Tuid = tuid
+	return err
+}
+
+func (s *SendDao) Save() (id int64, err error) {
+	//分配seq_svr
+	u := NewUserDao()
+	seq_svr, _, err := u.incrSeq(s.Tuid[2:], "s")
+	if err != nil {
+		return
+	}
+	s.Seq = seq_svr
+	//插入数据
+	var message, option interface{}
+	if s.Message != nil {
+		message, _ = json.Marshal(s.Message)
+	}
+	if s.Option != nil {
+		option, _ = json.Marshal(s.Option)
+	}
+	stmt, err := sys.DbMaster.Prepare("INSERT INTO `" + s.GetTableName() + "`(`seq`,`cmd`,`rid`,`fuid`,`fname`,`to`,`tuid`,`message`,`option`,`stime`,`expired`,`timeline`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)")
+	defer stmt.Close()
+	res, err := stmt.Exec(s.Seq, s.Cmd, s.rid, s.Fuid, s.Fname, s.To, s.Tuid[2:], message, option, s.Stime, s.Expired, time.Now().Unix())
+	if s.mid, err = res.LastInsertId(); err == nil {
+		id = s.mid
+		return
+	}
+	return
+}

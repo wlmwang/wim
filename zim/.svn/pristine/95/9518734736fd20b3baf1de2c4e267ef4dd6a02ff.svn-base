@@ -1,0 +1,57 @@
+package dao
+
+import (
+	"zim/sys"
+)
+
+type TagDao struct {
+	baseDao
+	Tid      string `json:"tid" db:"tid"`
+	Tname    string `json:"tname" db:"tname"`
+	Uid      string `json:"uid" db:"uid"`
+	disabled int    `db:"disabled"` //是否禁用
+	timeline int64  `db:"timeline"`
+}
+
+func NewTagDao(sessionid string) (t *TagDao) {
+	t = &TagDao{}
+	t.SetTableName("zim_tag")
+	t.SetSessionid(sessionid)
+	return
+}
+
+func (t *TagDao) GetTag(uid string) (tm []string, err error) {
+	tm = make([]string, 0)
+	sql := "SELECT `tname` FROM `" + t.GetTableName() + "` WHERE `disabled`=0 AND `uid`=" + uid
+	dbmap, err := sys.DbHub.Database(t.sessionid, "master")
+	if err != nil {
+		return
+	}
+	urow, err := dbmap.Query(sql)
+	var tname string
+	for urow.Next() {
+		tname = ""
+		if err = urow.Scan(&tname); err == nil {
+			tm = append(tm, tname)
+		}
+	}
+	return
+}
+
+func (t *TagDao) GetUid(tname string) (tm []string, err error) {
+	tm = make([]string, 0)
+	sql := "SELECT `uid` FROM `" + t.GetTableName() + "` WHERE `disabled`=0 AND `tname`='" + tname + "'"
+	dbmap, err := sys.DbHub.Database(t.sessionid, "master")
+	if err != nil {
+		return
+	}
+	urow, err := dbmap.Query(sql)
+	var uid string
+	for urow.Next() {
+		uid = ""
+		if err = urow.Scan(&uid); err == nil {
+			tm = append(tm, uid)
+		}
+	}
+	return
+}

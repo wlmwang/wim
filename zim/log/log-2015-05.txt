@@ -1,0 +1,1 @@
+2015/05/27 13:14:59 D:/golang/src/zim/service/receiveSvr.go:38: info: 消息格式不正确 <nil>

@@ -1,0 +1,147 @@
+package service
+
+import (
+	"encoding/json"
+	//"fmt"
+	"math/rand"
+	"net/http"
+	//"net/rpc"
+	"strconv"
+	"sync"
+	"time"
+	"zim/common"
+	"zim/dao"
+	"zim/sys"
+)
+
+type loginSvr struct {
+	lock      *sync.RWMutex
+	online    int
+	tToServer map[string]connection //token conn
+	uToToken  map[string]string     //uid token
+}
+
+var LoginSvr *loginSvr
+
+func NewLoginSvr() *loginSvr {
+	return &loginSvr{
+		lock:      new(sync.RWMutex),
+		tToServer: make(map[string]connection),
+		uToToken:  make(map[string]string),
+	}
+}
+
+func (l *loginSvr) LoginSvrHandle(w http.ResponseWriter, r *http.Request) (res string, code int) {
+	l.lock.RLock()
+	defer l.lock.RUnlock()
+	if l.online >= sys.BaseConf.Get("online").MustInt() {
+		code = 4015
+		return
+	}
+	switch r.FormValue("act") {
+	case "login":
+		appid := r.FormValue("appid")
+		username := r.FormValue("username")
+		password := r.FormValue("password")
+		if appid == "" || username == "" || password == "" {
+			code = 4008
+		}
+		//rand token start
+		t, i := common.RandomStr(), 0
+		for _, ok := l.tToServer[t]; ok; i++ {
+			t = common.RandomStr()
+			_, ok = l.tToServer[t]
+			if i > 50 {
+				code = 5008
+				break
+			}
+		}
+		//end
+		userDao := dao.NewUserDao()
+		if userDao.Login(username, password, appid); userDao.Uid == "" {
+			code = 4014
+			return
+		}
+		if token, ok := l.uToToken[userDao.Uid]; ok && r.FormValue("force") == "" {
+			code = 4010
+			return
+		} else if ok && r.FormValue("force") == "1" {
+			//强登通知push tip
+			if c, ok := l.tToServer[token]; ok && c.CliSck != r.RemoteAddr {
+				p := NewPushSvr()
+				p.PushForce(token, userDao)
+			}
+			//end
+			delete(l.tToServer, token)
+			delete(l.uToToken, userDao.Uid)
+			l.online--
+		}
+		//rand server start
+		allNs, _ := sys.BaseConf.Get("ns").Map()
+		seed := rand.New(rand.NewSource(time.Now().UnixNano()))
+		ns, _ := sys.BaseConf.Get("ns").Get(strconv.Itoa(seed.Intn(len(allNs)))).Map()
+		//end
+		if code == 0 {
+			c := NewConnection()
+			c.CliSck = r.RemoteAddr
+			c.SvrIp = ns["ip"].(string)
+			c.SvrPort = ns["port"].(string)
+			c.User = userDao
+			c.Device = common.GetDevice(r)
+			c.Token = t
+			l.tToServer[t] = *c
+			l.uToToken[userDao.Uid] = t
+			l.online = len(l.tToServer)
+			//上线通知push tip
+			p := NewPushSvr()
+			p.PushStatusToRoster(userDao, "online")
+			//end
+			info, _ := json.Marshal(c)
+			res = string(info)
+		}
+	default:
+		code = 4008
+	}
+	return
+}
+
+func (l *loginSvr) CheckLogin(query string) (res string, islogin bool) {
+	ls, _ := sys.BaseConf.Get("ls").Map()
+	for i := 0; i < len(ls); i++ {
+		dd, _ := sys.BaseConf.Get("ls").Get(strconv.Itoa(i)).Map()
+		client := sys.RpcPool.GetClient(dd["ip"].(string), dd["port"].(string))
+		if client != nil {
+			defer sys.RpcPool.PutClient(dd["ip"].(string), dd["port"].(string), client)
+			var reply []byte
+			err := client.Call("RpcSvr.CheckLogin", query, &reply)
+			if err != nil {
+				continue
+			} else {
+				res = string(reply)
+				islogin = true
+				break
+			}
+		}
+	}
+	return
+}
+
+func (l *loginSvr) Logout(query string) (isout bool) {
+	ls, _ := sys.BaseConf.Get("ls").Map()
+	for i := 0; i < len(ls); i++ {
+		dd, _ := sys.BaseConf.Get("ls").Get(strconv.Itoa(i)).Map()
+		client := sys.RpcPool.GetClient(dd["ip"].(string), dd["port"].(string))
+		if client != nil {
+			defer sys.RpcPool.PutClient(dd["ip"].(string), dd["port"].(string), client)
+			var reply []byte
+			err := client.Call("RpcSvr.Logout", query, &reply)
+			if err != nil {
+				continue
+			} else {
+				isout = true
+				break
+			}
+		}
+	}
+	return
+}

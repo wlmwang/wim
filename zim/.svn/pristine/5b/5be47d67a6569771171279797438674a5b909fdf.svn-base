@@ -1,0 +1,40 @@
+{
+	"ls":{
+		"0":{
+			"ip":"192.168.125.128",
+			"port":"9264"
+		},
+		"1":{
+			"ip":"192.168.125.128",
+			"port":"9264"
+		}
+	},
+	"ns":{
+		"0":{
+			"ip":"192.168.125.128",
+			"port":"9264"
+		}
+	},
+	"db" : {
+		"host" : "192.168.150.13",
+		"port" : 3306,
+		"user" : "dev",
+		"password" : "dev",
+		"database" : "zim",
+		"maxOpen": 2000,
+		"maxIdle": 1000
+	},
+	"redis" : {
+		"host" : "192.168.150.13",
+		"port" : 6379,
+		"password" : ""
+	},
+	"api" : {
+		"key":"abcdefghijklmnopkrstuvwsyz012345",
+		"timeSlice":300
+	},
+	"mode":"ls0",
+	"online":500000,
+	"keepalive":86400,
+	"test" : true
+}

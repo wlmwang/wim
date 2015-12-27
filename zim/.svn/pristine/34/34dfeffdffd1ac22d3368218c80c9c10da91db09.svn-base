@@ -1,0 +1,49 @@
+// Copyright 2014 G&W. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package service
+
+import (
+	"encoding/json"
+	"net/rpc"
+	//"zim/common"
+)
+
+type pushSvr struct {
+}
+
+func NewPushSvr() *pushSvr {
+	return &pushSvr{}
+}
+
+func (p *pushSvr) PushTip(query string, data []byte) (res string, code int) {
+	//defer common.HandleError()
+	//android
+	res, islogin := LoginSvr.CheckLogin(query)
+	if res == "" || !islogin {
+		code = 2020
+		return
+	}
+	c := NewConnectSvr()
+	if err := json.Unmarshal([]byte(res), c); err != nil || c.User.Uid == "" {
+		code = 4000
+		return
+	}
+	client, err := rpc.DialHTTP("tcp", c.SvrIp+":"+c.SvrPort)
+	if err != nil {
+		code = 5007
+	}
+	rg := make(map[string]string, 0)
+	rg["token"] = c.Token
+	rg["query"] = string(data)
+	var reply []byte
+	err = client.Call("RpcSvr.PushTip", rg, &reply)
+	if err == nil {
+		res = string(reply)
+		return
+	}
+	//ios
+	//coding...
+	return
+}

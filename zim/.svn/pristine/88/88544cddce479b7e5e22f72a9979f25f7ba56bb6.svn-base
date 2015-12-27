@@ -1,0 +1,60 @@
+// Copyright 2014 G&W. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package service
+
+import (
+	"errors"
+	"gaw/common"
+	"gaw/dao"
+	"github.com/bitly/go-simplejson"
+	"strconv"
+	"time"
+)
+
+type messageSrv struct {
+	message chan *dao.MessageDao //发送消息主体
+}
+
+func NewMessageSrv() *messageSrv {
+	return &messageSrv{
+		message: make(chan *dao.MessageDao, 10000), //消息中间件中最多10000条数据同时处理
+	}
+}
+
+/**
+ * 解析请求
+ */
+func (m *messageSrv) parse(c common.Isocket, msg []byte) error {
+	defer common.HandleError()
+
+	r := model.NewRequestDao()
+	if err := json.Unmarshal(msg, requestDao); err != nil {
+		common.LogSvr.Fatal("fatal: "+sys.Gcode.Get("4000").MustString(), string(msg))
+		return err
+	}
+
+	switch msg.Cmd {
+	case "send":
+		SendSvr.handle()
+	case "receive":
+		ReceiveSvr.handle()
+	}
+
+	if userInfo, err := socketProtocoler.GetUser(); err == nil {
+		requestModel.FromUid = "u/" + userInfo.Uid
+	}
+	if connId, err := socketProtocoler.GetConnId(); err == nil {
+		requestModel.FromConnId = connId
+	}
+	requestModel.Stime = time.Now().Unix() //系统时间
+	if requestModel.Expired <= 0 {
+		requestModel.Expired = 86400
+	}
+	if id, err := gawMessager.saveRequest(*requestModel); err == nil {
+		requestModel.Id = id
+		gawMessager.requestHandle(requestModel)
+	}
+	return nil
+}

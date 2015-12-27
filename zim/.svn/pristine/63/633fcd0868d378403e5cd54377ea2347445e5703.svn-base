@@ -1,0 +1,63 @@
+package dao
+
+import (
+	"zim/sys"
+)
+
+type GuserDao struct {
+	baseDao
+	id  string `db:"id"`
+	Gid string `json:"gid" db:"gid"`
+	Uid string `json:"uid" db:"uid"`
+}
+
+type GroupDao struct {
+	baseDao
+	Gid      string `json:"gid" db:"gid"`
+	Gname    string `json:"gname" db:"gname"`
+	disabled int    `db:"disabled"` //是否禁用
+	uid      string `db:"uid"`
+	Guser    []GuserDao
+}
+
+func NewGuserDao(sessionid string) (gu *GuserDao) {
+	gu = &GuserDao{}
+	gu.SetTableName("zim_guser")
+	gu.SetSessionid(sessionid)
+	return gu
+}
+
+func NewGroupDao(sessionid string) (g *GroupDao) {
+	g = &GroupDao{
+		Guser: make([]GuserDao, 0),
+	}
+	g.SetTableName("zim_group")
+	g.SetSessionid(sessionid)
+	return g
+}
+
+func (g *GroupDao) Get(uid string) (gm map[string]GroupDao, err error) {
+	gm = make(map[string]GroupDao, 0)
+	gu := NewGuserDao(g.sessionid)
+	sql := "SELECT g.`gid`,g.`gname`,g.`uid`,g.`disabled` FROM `" + g.GetTableName() + "` AS g INNER JOIN  `" + gu.GetTableName() + "` AS gu ON gu.`gid`=g.`gid` WHERE `disabled`=0 AND gu.`uid`=" + uid + " GROUP BY g.gid"
+	dbmap, err := sys.DbHub.Database(g.sessionid, "master")
+	if err != nil {
+		return
+	}
+	urow, err := dbmap.Query(sql)
+	for urow.Next() {
+		gn := NewGroupDao(g.sessionid)
+		if err = urow.Scan(&gn.Gid, &gn.Gname, &gn.uid, &gn.disabled); err == nil {
+			sql = "SELECT `id`,`uid`,`gid` FROM `" + gu.GetTableName() + "` WHERE gid='" + gn.Gid + "'"
+			trow, _ := dbmap.Query(sql)
+			for trow.Next() {
+				guu := NewGuserDao(g.sessionid)
+				if err = trow.Scan(&guu.id, &guu.Uid, &guu.Gid); err == nil {
+					gn.Guser = append(gn.Guser, *guu)
+				}
+			}
+			gm[gn.Gid] = *gn
+		}
+	}
+	return
+}

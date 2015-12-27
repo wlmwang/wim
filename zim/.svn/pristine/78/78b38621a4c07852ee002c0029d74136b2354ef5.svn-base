@@ -1,0 +1,91 @@
+package dao
+
+import (
+	//"fmt"
+	"strconv"
+	"zim/sys"
+)
+
+type UserDao struct {
+	baseDao
+	Uid      string   `json:"uid" db:"uid"`            //用户id
+	Username string   `json:"username"  db:"username"` //用户名
+	Appid    int      `json:"appid"  db:"appid"`       //用户服务器
+	Nickname string   `json:"nickname"  db:"nickname"` //昵称
+	Sex      string   `json:"sex"  db:"sex"`           //性别
+	Password string   `json:"password"  db:"password"` //密码
+	Disabled int      `json:"disabled"  db:"disabled"` //是否禁用
+	Group    []string `json:"group"  db:"group"`       //用户分组
+	SeqSvr   int      `json:"seq_svr"  db:"seq_svr"`   //服务端分配进程
+	SeqCli   int      `json:"seq_cli"  db:"seq_cli"`   //客户端读取进程
+}
+
+func NewUserDao() (u *UserDao) {
+	u = &UserDao{}
+	u.SetTableName("zim_user")
+	return u
+}
+
+func (u *UserDao) Login(username, password, appid string) (err error) {
+	sql := "SELECT `appid`,`uid`,`username`,`nickname`,`sex`,`disabled` FROM `" + u.GetTableName() + "` WHERE `disabled`=0 AND `username`='" + username + "' AND `password`='" + password + "' AND `appid`='" + appid + "'"
+	urow, err := sys.DbSlave.Query(sql)
+	if err == nil {
+		urow.Next()
+		return urow.Scan(&u.Appid, &u.Uid, &u.Username, &u.Nickname, &u.Sex, &u.Disabled)
+	}
+	return
+}
+
+func (u *UserDao) incrSeq(uid string, tp string) (seqSvr int64, seqCli int64, err error) {
+	sql := "UPDATE `" + u.GetTableName() + "` SET `seq_cli`=`seq_cli`+1 WHERE `uid`='" + uid + "'"
+	if tp == "s" {
+		sql = "UPDATE `" + u.GetTableName() + "` SET `seq_svr`=`seq_svr`+1 WHERE `uid`='" + uid + "'"
+	}
+	stmt, _ := sys.DbMaster.Prepare(sql)
+	defer stmt.Close()
+	_, err = stmt.Exec()
+	if err != nil {
+		return
+	}
+	sql = "SELECT `seq_svr`,`seq_cli` FROM `" + u.GetTableName() + "` WHERE `uid`='" + uid + "'"
+	urow, err := sys.DbMaster.Query(sql)
+	if err != nil {
+		return
+	}
+	urow.Next()
+	urow.Scan(&seqSvr, &seqCli)
+	return
+}
+
+func (u *UserDao) setSeq(seq int64, uid string, tp string) (seqSvr int64, seqCli int64, err error) {
+	sql := "UPDATE `" + u.GetTableName() + "` SET `seq_cli`=" + strconv.FormatInt(seq, 10) + " WHERE `uid`='" + uid + "'"
+	if tp == "s" {
+		sql = "UPDATE `" + u.GetTableName() + "` SET `seq_svr`=" + strconv.FormatInt(seq, 10) + " WHERE `uid`='" + uid + "'"
+	}
+	stmt, _ := sys.DbMaster.Prepare(sql)
+	defer stmt.Close()
+	_, err = stmt.Exec()
+	if err != nil {
+		return
+	}
+	sql = "SELECT `seq_svr`,`seq_cli` FROM `" + u.GetTableName() + "` WHERE `uid`='" + uid + "'"
+	urow, err := sys.DbMaster.Query(sql)
+	if err != nil {
+		return
+	}
+	urow.Next()
+	urow.Scan(&seqSvr, &seqCli)
+	return
+}
+
+func (u *UserDao) haveMessage(uid string, seqCli int64) (r bool, err error) {
+	sql := "SELECT `uid` FROM " + u.GetTableName() + " WHERE `uid`='" + uid + " AND `seq_svr`>" + strconv.FormatInt(seqCli, 10)
+	if urow, err := sys.DbMaster.Query(sql); err == nil {
+		urow.Next()
+		var id int64
+		if urow.Scan(&id); id > 0 {
+			r = true
+		}
+	}
+	return
+}

@@ -1,0 +1,78 @@
+package common
+
+import (
+	"crypto/md5"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+var LogSvr *log.Logger
+
+func GetLogger() *log.Logger {
+	dir := "./log"
+	t := time.Now()
+	filepath := dir + "/log-" + strings.Replace(t.String()[:7], ":", "_", 3) + ".txt"
+	logfile, err := os.OpenFile(filepath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0)
+	if err != nil {
+		fmt.Printf("%s\r\n", err.Error())
+		os.Exit(-1)
+	}
+	logger := log.New(logfile, "", log.Ldate|log.Ltime|log.Llongfile)
+	return logger
+}
+
+func RandomStr(length int) string {
+	if length <= 0 {
+		length = 32
+	}
+	bs := make([]byte, length)
+	if _, err := io.ReadFull(rand.Reader, bs); err != nil {
+		return ""
+	}
+	sig := fmt.Sprintf("%s%s", time.Now().UnixNano(), bs)
+	h := md5.New()
+	h.Write([]byte(sig))
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func GetCurrPath() string {
+	file, _ := exec.LookPath(os.Args[0])
+	path, _ := filepath.Abs(file)
+	splitstring := strings.Split(path, "\\")
+	size := len(splitstring)
+	splitstring = strings.Split(path, splitstring[size-1])
+	ret := strings.Replace(splitstring[0], "\\", "/", size-1)
+	return ret
+}
+
+func GetDevice(r *http.Request) (device string) {
+	UserAgent := r.Header.Get("User-Agent")
+	if strings.Contains(UserAgent, "Mozilla") {
+		device = "web"
+	} else if strings.Contains(UserAgent, "Ios") {
+		device = "ios"
+	} else if strings.Contains(UserAgent, "Android") {
+		device = "android"
+	} else {
+		device = "others"
+	}
+	return
+}
+
+func HandleError() {
+	if x := recover(); x != nil {
+		logger := GetLogger()
+		logger.Fatal(x)
+		fmt.Println(x)
+		os.Exit(-1)
+	}
+}

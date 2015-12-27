@@ -1,0 +1,56 @@
+// Copyright 2014 G&W. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package service
+
+import (
+	"encoding/json"
+	//"fmt"
+	"zim/common"
+	"zim/dao"
+	"zim/sys"
+)
+
+type requestSrv struct {
+	request chan *dao.RequestDao //发送消息主体
+}
+
+var RequestSrv *requestSrv
+
+func NewRequestSrv() *requestSrv {
+	return &requestSrv{
+		request: make(chan *dao.RequestDao, 10000), //消息中间件中最多10000条数据同时处理
+	}
+}
+
+/**
+ * 解析请求
+ */
+func (r *requestSrv) parse(c *connectSvr, msg []byte) (err error) {
+	//defer common.HandleError()
+	req := dao.NewRequestDao()
+	if err = json.Unmarshal(msg, req); err != nil {
+		common.LogSvr.Fatal("fatal: "+sys.LangConf.Get("4000").MustString(), string(msg), err)
+		return
+	}
+	switch req.Cmd {
+	case "send":
+		r.assert(c, req)
+		if _, err = req.Save(); err == nil {
+			sendSvr := NewSendSrv()
+			sendSvr.handle(req)
+		}
+	case "receive":
+		receiveSvr := NewReceiveSvr()
+		receiveSvr.handle(req)
+	}
+	return
+}
+
+func (r *requestSrv) assert(c *connectSvr, req *dao.RequestDao) {
+	req.Fuid, req.Fname = c.User.Uid, c.User.Username
+	if req.Expired == 0 {
+		req.Expired = 86400 * 30
+	}
+}

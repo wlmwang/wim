@@ -1,0 +1,100 @@
+package service
+
+import (
+	"encoding/json"
+	//"fmt"
+	"net/http"
+	"os"
+	//"strings"
+	//"time"
+	//"zim/common"
+	//"zim/dao"
+	//"zim/sys"
+)
+
+type fileSvr struct{}
+
+var FileSvr *fileSvr
+
+func NewFileSvr() *fileSvr {
+	return &fileSvr{}
+}
+
+func (f *fileSvr) FileSvrHandle(w http.ResponseWriter, r *http.Request) (res string, code int) {
+	switch r.FormValue("act") {
+	case "upload":
+		/*
+			token := r.FormValue("token")
+			c := NewConnectSvr()
+			if re, islogin := LoginSvr.CheckLogin("c/" + token); re != "" && islogin {
+				if err := json.Unmarshal([]byte(re), c); err != nil || c.User.Uid == "" {
+					code = 4011
+					return
+				}
+			} else {
+				code = 4011
+				return
+			}
+			appid := r.FormValue("appid")
+			sort := r.FormValue("sort")
+			content := r.FormValue("content")
+			//file upload
+			dir := "upload/" + strings.Replace(time.Now().String()[:7], ":", "_", 3)
+			if _, err := os.Stat(dir); err != nil {
+				if err := os.Mkdir(dir, 0755); err != nil {
+					code = 5007
+					common.LogSvr.Println("info:" + sys.LangConf.Get("5007").MustString())
+					return
+				}
+			}
+			name := common.RandomStr()
+			filepath := dir + "/" + name
+			fout, err := os.Create(filepath)
+			defer fout.Close()
+			if err != nil {
+				code = 5005
+				return
+			}
+			fout.WriteString(content)
+			//file upload
+				fileDao := dao.NewFileDao()
+				if id, _ := fileDao.Save(sort, filepath, c.User.Uid, appid); id == 0 {
+					code = 5005
+					return
+				}
+			//info, _ := json.Marshal(fileDao)
+			//res = string(info)
+		*/
+	case "get":
+		token := r.FormValue("token")
+		c := NewConnectSvr()
+		if re, islogin := LoginSvr.CheckLogin("c/" + token); re != "" && islogin {
+			if err := json.Unmarshal([]byte(re), c); err != nil || c.User.Uid == "" {
+				code = 4011
+				return
+			}
+		} else {
+			code = 4011
+			return
+		}
+		path := r.FormValue("path")
+		fin, err := os.Open(path)
+		if err != nil {
+			code = 5006
+			return
+		}
+		defer fin.Close()
+		buf := make([]byte, 1024)
+		for {
+			n, _ := fin.Read(buf)
+			if 0 == n {
+				break
+			}
+			//TODO.
+			res += string(buf[:n])
+		}
+	default:
+		code = 4008
+	}
+	return
+}

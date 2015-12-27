@@ -1,0 +1,191 @@
+// Copyright 2014 G&W. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package lib
+
+import (
+	"errors"
+	//"fmt"
+	"gaw/common"
+	"gaw/model"
+	"gaw/protocol"
+	"gaw/sys"
+	"github.com/gorilla/websocket"
+	"log"
+	"net/http"
+	"strings"
+	"time"
+)
+
+const (
+	writeWait      = 30 * time.Second //Time allowed to write a message to the peer.
+	pongWait       = 60 * time.Second //Time allowed to read the next pong message from the peer.
+	maxMessageSize = 1024             //Maximum message size allowed from peer.
+)
+
+/**
+ * WebSocketProtocol协议处理器
+ */
+type Connection struct {
+	ConnId     string           //标示该连接的随机字符。24字节
+	DeviceType string           //设备类型（web、ios、android、winphone）
+	Disabled   bool             //true关闭
+	UserInfo   *model.UserModel //用户句柄
+}
+type GawSocket struct {
+	ws *websocket.Conn //websocket connection
+	Connection
+}
+
+/**
+ * 连接
+ */
+func (gawSocketer *GawSocket) Connect(w http.ResponseWriter, r *http.Request) (int, error) {
+	ws, err := websocket.Upgrade(w, r, nil, 1024, 1024)
+	if _, ok := err.(websocket.HandshakeError); ok {
+		return 400, errors.New("Not a websocket handshake")
+	} else if err != nil {
+		log.Println(err)
+		return 401, err
+	}
+	gawSocketer.ws = ws
+	gawSocketer.ConnId = "c/" + common.NewGconnId()
+	gawSocketer.Disabled = false
+	//连接设备
+	UserAgent := r.Header.Get("User-Agent")
+	if strings.Contains(UserAgent, "Mozilla") {
+		gawSocketer.DeviceType = "web"
+	} else if strings.Contains(UserAgent, "Ios") {
+		gawSocketer.DeviceType = "ios"
+	} else if strings.Contains(UserAgent, "Android") {
+		gawSocketer.DeviceType = "android"
+	} else {
+		gawSocketer.DeviceType = "others"
+	}
+	//添加连接池
+	sys.GconnPool.ConnCache <- gawSocketer
+	return 0, err
+}
+
+/**
+ * 断开
+ */
+func (gawSocketer *GawSocket) DisConnect() error {
+	//gawSocketer.Disabled = true	//页面刷新再次登录，可发送消息
+	gawSocketer.ws.Close()
+	return nil
+}
+
+/**
+ * 获得connid
+ */
+func (gawSocketer *GawSocket) GetConnId() (string, error) {
+	if gawSocketer.Disabled == true {
+		return gawSocketer.ConnId, errors.New("连接已失效")
+	}
+	return gawSocketer.ConnId, nil
+}
+
+/**
+ * 获得Platform
+ */
+func (gawSocketer *GawSocket) GetDeviceType() (string, error) {
+	if gawSocketer.Disabled == true {
+		return "", errors.New("连接已失效")
+	}
+	return gawSocketer.DeviceType, nil
+}
+
+/**
+ * 绑定用户到socket
+ */
+func (gawSocketer *GawSocket) SetUser(userInfo *model.UserModel) (bool, error) {
+	if gawSocketer.Disabled == true {
+		return false, errors.New("连接已失效")
+	}
+	gawSocketer.UserInfo = userInfo
+	return true, nil
+}
+
+/**
+ * 获取用户
+ */
+func (gawSocketer *GawSocket) GetUser() (*model.UserModel, error) {
+	if gawSocketer.Disabled == true {
+		return nil, errors.New("连接已失效")
+	}
+	if userInfo := gawSocketer.UserInfo; userInfo == nil || userInfo.Uid == "" {
+		return nil, errors.New("用户没有登录")
+	}
+	return gawSocketer.UserInfo, nil
+}
+
+/**
+ * write writes a message with the given message type and payload.
+ * 底层发送消息到客户端
+ */
+func (gawSocketer *GawSocket) Write(mt int, payload []byte) error {
+	gawSocketer.ws.SetWriteDeadline(time.Now().Add(writeWait))
+	return gawSocketer.ws.WriteMessage(mt, payload)
+}
+
+/**
+ * 发送文本
+ */
+func (gawSocketer *GawSocket) SendText(message []byte) error {
+	if connId, err := gawSocketer.GetConnId(); err != nil {
+		sys.GconnPool.Close(connId)
+		return errors.New("连接已失效，发送失败")
+	}
+	return gawSocketer.Write(websocket.TextMessage, message)
+}
+
+/**
+ * 发送二进制
+ */
+func (gawSocketer *GawSocket) SendBinary(message []byte) error {
+	if connId, err := gawSocketer.GetConnId(); err != nil {
+		sys.GconnPool.Close(connId)
+		return errors.New("连接失效，发送失败")
+	}
+	return gawSocketer.Write(websocket.BinaryMessage, message)
+}
+
+/**
+ * ping message
+ */
+func (gawSocketer *GawSocket) PingMessage() error {
+	return gawSocketer.Write(websocket.PingMessage, []byte{})
+}
+
+/**
+ * 循环读取消息
+ */
+func (gawSocketer *GawSocket) MessageHandle() error {
+	defer func() {
+		connId, _ := gawSocketer.GetConnId()
+		sys.GconnPool.Close(connId)
+	}()
+	gawSocketer.ws.SetReadDeadline(time.Now().Add(pongWait))
+	gawSocketer.ws.SetReadLimit(maxMessageSize)
+	gawSocketer.ws.SetPongHandler(func(string) error { gawSocketer.ws.SetReadDeadline(time.Now().Add(pongWait)); return nil })
+	var err error
+	for {
+		_, message, err := gawSocketer.ws.ReadMessage()
+		if err != nil {
+			break
+		}
+		go protocol.GmessageProtocol.ParseRequest(gawSocketer, message)
+	}
+	return err
+}
+
+/**
+ * 新建客户端设备
+ */
+func NewGawSocket() *GawSocket {
+	return &GawSocket{
+		Connection: Connection{UserInfo: new(model.UserModel)},
+	}
+}
