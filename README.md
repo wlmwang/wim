@@ -1,3 +1,2 @@
 # wim
-IM Server. Reference WeChat framework.
- 
+Simple learning, do not use in production environment
