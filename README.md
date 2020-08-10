@@ -1,2 +1,2 @@
 # wim
-Simple learning, do not use in production environment
+Simply refer to WeChat, do not use it in a production environment
